@@ -1,0 +1,8 @@
+.aider.chat.history.md
+.aider.input.history
+.aider.tags.cache.v4/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+clmix
+cmake_install.cmake
