@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 #include <stdexcept>
-#include <optional>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -39,12 +38,12 @@ struct Track {
 struct TrackInfo {
   std::filesystem::path filename;
   int beats_per_bar = 4;
-  std::optional<float> bpm; // std::nullopt if unknown
+  float bpm = 120.f; // required > 0
   std::vector<int> cue_bars; // 1-based bar numbers
 };
 
  // Simple text DB:
- // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm|nan> <space> <cues_csv_or_->
+ // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <cues_csv_or_->
  // Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
   std::unordered_map<std::string, TrackInfo> items;
@@ -84,17 +83,13 @@ struct TrackDB {
         // Malformed line; skip
         continue;
       }
-      std::optional<float> bpm;
+      float bpm = 120.f;
       if (iss >> bpm_tok) {
-        std::string lowered = bpm_tok;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-        if (lowered != "nan") {
-          try {
-            bpm = std::stof(bpm_tok);
-          } catch (...) {
-            // leave bpm as nullopt
-          }
+        try {
+          float v = std::stof(bpm_tok);
+          if (v > 0.f) bpm = v;
+        } catch (...) {
+          bpm = 120.f;
         }
       }
       std::vector<int> cues;
@@ -130,7 +125,7 @@ struct TrackDB {
     if (!out.is_open()) {
       return false;
     }
-    out << "# clmix track db: \"filename\" beats_per_bar bpm_or_nan cues_csv_or_-\n";
+    out << "# clmix track db: \"filename\" beats_per_bar bpm cues_csv_or_-\n";
     for (const auto& [key, ti] : items) {
       std::string cues_tok;
       if (!ti.cue_bars.empty()) {
@@ -143,7 +138,7 @@ struct TrackDB {
       }
       out << std::quoted(ti.filename.generic_string()) << ' '
           << ti.beats_per_bar << ' '
-          << (ti.bpm.has_value() ? std::to_string(*ti.bpm) : "nan") << ' '
+          << std::to_string(ti.bpm) << ' '
           << cues_tok << '\n';
     }
     return true;
@@ -523,9 +518,7 @@ int main()
     } else {
       ti.filename = f;
       ti.beats_per_bar = 4;
-      ti.bpm = std::nullopt;
-    }
-    if (!ti.bpm.has_value()) {
+      ti.bpm = 120.f;
       try {
         guessedBpm = detect_bpm(*tr);
         if (guessedBpm > 0.f) {
@@ -538,7 +531,7 @@ int main()
 
     std::cout << "Opened " << f << "\n";
     if (guessedBpm > 0) std::println(std::cout, "Guessed BPM: {:.2f}", guessedBpm);
-    if (ti.bpm) std::println(std::cout, "DB BPM: {:.2f}", *ti.bpm);
+    std::println(std::cout, "BPM: {:.2f}", ti.bpm);
     std::cout << "Beats/bar: " << ti.beats_per_bar << "\n";
 
     // Initialize player state for this track (not playing yet)
@@ -550,7 +543,7 @@ int main()
     g_player.clickSamplesLeft = 0;
     g_player.clickPhase = 0.f;
     g_player.trackGainDB.store(0.f);
-    g_player.bpm.store((ti.bpm ? *ti.bpm : (guessedBpm > 0 ? guessedBpm : 120.f)));
+    g_player.bpm.store(ti.bpm);
     g_player.bpb.store(std::max(1, ti.beats_per_bar));
 
     auto print_estimated_bars = [&](){
