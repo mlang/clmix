@@ -59,9 +59,11 @@ struct Metronome {
   int clickLen = 0; // in device samples
   float clickPhase = 0.f;
   float clickAmp = 0.f;
+  float clickFreqCurHz = 1000.f;
 
   // click parameters
-  float clickFreqHz = 1000.f;
+  float clickFreqHzBeat = 1000.f;
+  float clickFreqHzDownbeat = 1600.f; // higher pitch for downbeat
   float downbeatAmp = 0.35f;
   float beatAmp = 0.18f;
 
@@ -71,6 +73,7 @@ struct Metronome {
     clickLen = 0;
     clickPhase = 0.f;
     clickAmp = 0.f;
+    clickFreqCurHz = clickFreqHzBeat;
   }
 
   void prepare_after_seek(double posSrcFrames, double framesPerBeatSrc) {
@@ -88,11 +91,12 @@ struct Metronome {
       int curBpb = std::max(1, bpb.load());
       bool downbeat = (beatIndex % (uint64_t)curBpb) == 0;
       clickAmp = downbeat ? downbeatAmp : beatAmp;
+      clickFreqCurHz = downbeat ? clickFreqHzDownbeat : clickFreqHzBeat;
     }
     float click = 0.f;
     if (clickSamplesLeft > 0) {
       float env = (float)clickSamplesLeft / (float)clickLen; // linear decay
-      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqHz / (float)devRate;
+      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqCurHz / (float)devRate;
       click = clickAmp * std::sinf(clickPhase) * env;
       --clickSamplesLeft;
     }
