@@ -16,8 +16,13 @@
 #include <cmath>
 #include <cstdlib>
 
-#include <readline/readline.h>
+#include "vendor/mdspan.hpp"
+
+using multichannel = Kokkos::mdspan<float, Kokkos::dextents<std::size_t, 2>>;
+
+
 #include <readline/history.h>
+#include <readline/readline.h>
 
 #include <sndfile.hh>
 
@@ -26,7 +31,7 @@ extern "C" {
 }
 
 #define MINIAUDIO_IMPLEMENTATION
-#include "vendor/miniaudio.h"
+#include <miniaudio.h>
 
 struct Track {
   int sample_rate;
@@ -250,90 +255,103 @@ float detect_bpm(const Track& track)
   return bpm;
 }
 
-static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount) {
-  float* out = static_cast<float*>(pOutput);
-  const uint32_t dstCh = pDevice->playback.channels;
-  std::fill(out, out + frameCount * dstCh, 0.f);
+template<typename T>
+static inline T dbamp(T db)
+{
+  return std::pow(T(10.0), db * T(0.05));
+}
 
-  PlayerState* st = static_cast<PlayerState*>(pDevice->pUserData);
-  if (!st || !st->playing.load()) return;
-  auto tr = st->track;
-  if (!tr) return;
+static void play(
+  PlayerState &player, multichannel output, uint32_t devRate
+)
+{
+  if (player.track) {
+    auto &track = *player.track;
+    const float bpm = std::max(1.f, player.bpm.load());
+    const int bpb = std::max(1, player.bpb.load());
+    const float gainLin = dbamp(player.trackGainDB.load());
+    const size_t srcCh = static_cast<size_t>(track.channels);
+    const size_t totalSrcFrames = track.sound.size() / srcCh;
+    if (totalSrcFrames == 0) return;
 
-  const float bpm = std::max(1.f, st->bpm.load());
-  const int bpb = std::max(1, st->bpb.load());
-  const float gainLin = std::pow(10.0f, st->trackGainDB.load() * 0.05f);
-  const uint32_t devRate = pDevice->sampleRate;
-  const size_t srcCh = static_cast<size_t>(tr->channels);
-  const size_t totalSrcFrames = tr->sound.size() / srcCh;
-  if (totalSrcFrames == 0) return;
+    // Initialize click length if not set
+    if (player.clickLen == 0) player.clickLen = std::max(1, static_cast<int>(devRate / 100)); // ~10ms
 
-  // Initialize click length if not set
-  if (st->clickLen == 0) st->clickLen = std::max(1, static_cast<int>(devRate / 100)); // ~10ms
+    const double framesPerBeatSrc = (double)track.sample_rate * 60.0 / (double)bpm;
+    const double incrSrcPerOut = (double)track.sample_rate / (double)devRate;
 
-  const double framesPerBeatSrc = (double)tr->sample_rate * 60.0 / (double)bpm;
-  const double incrSrcPerOut = (double)tr->sample_rate / (double)devRate;
+    double pos = player.srcPos;
 
-  double pos = st->srcPos;
+    for (uint32_t i = 0; i < output.extent(0); ++i) {
+      if (player.seekPending.load(std::memory_order_acquire)) {
+	pos = player.seekTargetFrames.load(std::memory_order_relaxed);
+	player.seekPending.store(false, std::memory_order_release);
+	player.clickSamplesLeft = 0;
+	player.clickPhase = 0.f;
+	player.lastBeatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
+      }
 
-  for (uint32_t i = 0; i < frameCount; ++i) {
-    if (st->seekPending.load(std::memory_order_acquire)) {
-      pos = st->seekTargetFrames.load(std::memory_order_relaxed);
-      st->seekPending.store(false, std::memory_order_release);
-      st->clickSamplesLeft = 0;
-      st->clickPhase = 0.f;
-      st->lastBeatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
+      if (pos >= (double)(totalSrcFrames - 1)) {
+	player.playing.store(false);
+	break;
+      }
+
+      // Linear interpolation to mono
+      size_t i0 = (size_t)pos;
+      double frac = pos - (double)i0;
+      size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
+
+      double s0 = 0.0, s1 = 0.0;
+      size_t base0 = i0 * srcCh;
+      size_t base1 = i1 * srcCh;
+      for (size_t c = 0; c < srcCh; ++c) {
+	s0 += track.sound[base0 + c];
+	s1 += track.sound[base1 + c];
+      }
+      s0 /= (double)srcCh;
+      s1 /= (double)srcCh;
+      float smp = (float)(s0 * (1.0 - frac) + s1 * frac);
+
+      // Metronome trigger on beat crossings (source domain)
+      uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
+      if (beatIndex != player.lastBeatIndex) {
+	player.lastBeatIndex = beatIndex;
+	player.clickSamplesLeft = player.clickLen;
+	player.clickPhase = 0.f;
+	bool downbeat = (bpb > 0) ? ((beatIndex % (uint64_t)bpb) == 0) : false;
+	player.clickAmp = downbeat ? 0.35f : 0.18f; // subtle to avoid clipping
+      }
+
+      float click = 0.f;
+      if (player.clickSamplesLeft > 0) {
+	float env = (float)player.clickSamplesLeft / (float)player.clickLen; // linear decay
+	player.clickPhase += 2.0f * std::numbers::pi_v<float> * 1000.0f / (float)devRate; // 1kHz
+	click = player.clickAmp * std::sinf(player.clickPhase) * env;
+	--player.clickSamplesLeft;
+      }
+
+      float mix = (smp * gainLin) + click;
+      // write stereo (or whatever device channels)
+      for (uint32_t ch = 0; ch < output.extent(1); ++ch) {
+	output[i, ch] = mix;
+      }
+
+      pos += incrSrcPerOut;
     }
 
-    if (pos >= (double)(totalSrcFrames - 1)) {
-      st->playing.store(false);
-      break;
-    }
-
-    // Linear interpolation to mono
-    size_t i0 = (size_t)pos;
-    double frac = pos - (double)i0;
-    size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
-
-    double s0 = 0.0, s1 = 0.0;
-    size_t base0 = i0 * srcCh;
-    size_t base1 = i1 * srcCh;
-    for (size_t c = 0; c < srcCh; ++c) {
-      s0 += tr->sound[base0 + c];
-      s1 += tr->sound[base1 + c];
-    }
-    s0 /= (double)srcCh;
-    s1 /= (double)srcCh;
-    float smp = (float)(s0 * (1.0 - frac) + s1 * frac);
-
-    // Metronome trigger on beat crossings (source domain)
-    uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
-    if (beatIndex != st->lastBeatIndex) {
-      st->lastBeatIndex = beatIndex;
-      st->clickSamplesLeft = st->clickLen;
-      st->clickPhase = 0.f;
-      bool downbeat = (bpb > 0) ? ((beatIndex % (uint64_t)bpb) == 0) : false;
-      st->clickAmp = downbeat ? 0.35f : 0.18f; // subtle to avoid clipping
-    }
-
-    float click = 0.f;
-    if (st->clickSamplesLeft > 0) {
-      float env = (float)st->clickSamplesLeft / (float)st->clickLen; // linear decay
-      st->clickPhase += 2.0f * 3.14159265f * 1000.0f / (float)devRate; // 1kHz
-      click = st->clickAmp * std::sinf(st->clickPhase) * env;
-      --st->clickSamplesLeft;
-    }
-
-    float mix = (smp * gainLin) + click;
-    // write stereo (or whatever device channels)
-    for (uint32_t ch = 0; ch < dstCh; ++ch) {
-      out[i * dstCh + ch] = mix;
-    }
-
-    pos += incrSrcPerOut;
+    player.srcPos = pos;
   }
+}
 
-  st->srcPos = pos;
+static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+{
+  PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
+  multichannel output = Kokkos::mdspan(
+    static_cast<float*>(pOutput), frameCount, pDevice->playback.channels
+  );
+
+  if (!player.playing.load()) return;
+  play(player, output, pDevice->sampleRate);
 }
 
 // Shell-style tokenizer supporting quotes and backslashes.
