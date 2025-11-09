@@ -51,7 +51,7 @@ struct Track {
 // Encapsulated metronome state and processing
 struct Metronome {
   std::atomic<double> bpm{120.0};
-  std::atomic<int> bpb{4};
+  std::atomic<unsigned> bpb{4u};
 
   // runtime state
   uint64_t lastBeatIndex = 0;
@@ -88,8 +88,8 @@ struct Metronome {
       lastBeatIndex = beatIndex;
       clickSamplesLeft = clickLen;
       clickPhase = 0.f;
-      int curBpb = std::max(1, bpb.load());
-      bool downbeat = (beatIndex % (uint64_t)curBpb) == 0;
+      unsigned curBpb = std::max(1u, bpb.load());
+      bool downbeat = (beatIndex % static_cast<uint64_t>(curBpb)) == 0;
       clickAmp = downbeat ? downbeatAmp : beatAmp;
       clickFreqCurHz = downbeat ? clickFreqHzDownbeat : clickFreqHzBeat;
     }
@@ -107,7 +107,7 @@ struct Metronome {
 // Track metadata persisted in the DB
 struct TrackInfo {
   std::filesystem::path filename;
-  int beats_per_bar = 4;
+  unsigned beats_per_bar = 4;
   double bpm = 120.0; // required > 0
   std::vector<int> cue_bars; // 1-based bar numbers
 };
@@ -182,7 +182,7 @@ struct TrackDB {
       }
       TrackInfo ti;
       ti.filename = fname;
-      ti.beats_per_bar = beats;
+      ti.beats_per_bar = beats > 0 ? static_cast<unsigned>(beats) : 4u;
       ti.bpm = bpm;
       ti.cue_bars = std::move(cues);
       upsert(ti);
@@ -338,11 +338,11 @@ static void play(
     for (uint32_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load(std::memory_order_acquire)) {
-        int bpbNow = std::max(1, player.metro.bpb.load());
+        unsigned bpbNow = std::max(1u, player.metro.bpb.load());
         uint64_t beatNow  = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
         uint64_t beatNext = (uint64_t)std::floor(std::max(0.0, pos + incrSrcPerOut) / framesPerBeatSrc);
         bool crossesBeat = (beatNext != beatNow);
-        bool nextIsBarStart = (beatNext % (uint64_t)bpbNow) == 0;
+        bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
           pos = player.seekTargetFrames.load(std::memory_order_relaxed);
           player.seekPending.store(false, std::memory_order_release);
@@ -611,15 +611,15 @@ int main(int argc, char** argv)
     g_player.trackGainDB.store(0.f);
     g_player.metro.reset_runtime();
     g_player.metro.bpm.store(ti.bpm);
-    g_player.metro.bpb.store(std::max(1, ti.beats_per_bar));
+    g_player.metro.bpb.store(std::max(1u, ti.beats_per_bar));
 
     auto print_estimated_bars = [&](){
       auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
-      int bpbNow = std::max(1, g_player.metro.bpb.load());
+      unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
       size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
       double beats = (double)totalFrames / framesPerBeat;
-      double bars = beats / (double)bpbNow;
+      double bars = beats / static_cast<double>(bpbNow);
       std::println(std::cout, "Estimated bars: {:.2f}", bars);
     };
     print_estimated_bars();
@@ -653,8 +653,8 @@ int main(int argc, char** argv)
         return;
       }
       try {
-        int v = std::stoi(a[0]);
-        if (v <= 0) throw std::runtime_error("bpb must be > 0");
+        unsigned v = std::stoul(a[0]);
+        if (v == 0) throw std::runtime_error("bpb must be > 0");
         g_player.metro.bpb.store(v);
         ti.beats_per_bar = v;
         dirty = true;
@@ -779,9 +779,9 @@ int main(int argc, char** argv)
         int bar1 = std::stoi(a[0]); // 1-based
         int bar0 = std::max(0, bar1 - 1);
         auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
-        int bpbNow = std::max(1, g_player.metro.bpb.load());
+        unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
-        double target = (double)bar0 * (double)bpbNow * framesPerBeat;
+        double target = (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
         size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
         if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
         if (target < 0.0) target = 0.0;
