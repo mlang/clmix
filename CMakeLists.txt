@@ -10,4 +10,5 @@ pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
 
 add_executable(clmix main.cpp)
+target_compile_definitions(clmix PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1)
 target_link_libraries(clmix PRIVATE PkgConfig::SndFile PkgConfig::Aubio PkgConfig::Readline)
