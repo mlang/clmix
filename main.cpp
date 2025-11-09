@@ -50,7 +50,7 @@ struct Track {
   std::vector<float> sound;
 };
 
-std::vector<float> change_tempo(
+static std::vector<float> change_tempo(
   const std::vector<float> &samples, size_t channels,
   float from_bpm, size_t from_rate,
   float to_bpm, size_t to_rate
