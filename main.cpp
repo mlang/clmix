@@ -336,10 +336,18 @@ static void play(
     double pos = player.srcPos;
 
     for (uint32_t i = 0; i < output.extent(0); ++i) {
+      // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load(std::memory_order_acquire)) {
-	pos = player.seekTargetFrames.load(std::memory_order_relaxed);
-	player.seekPending.store(false, std::memory_order_release);
-	player.metro.prepare_after_seek(pos, framesPerBeatSrc);
+        int bpbNow = std::max(1, player.metro.bpb.load());
+        uint64_t beatNow  = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
+        uint64_t beatNext = (uint64_t)std::floor(std::max(0.0, pos + incrSrcPerOut) / framesPerBeatSrc);
+        bool crossesBeat = (beatNext != beatNow);
+        bool nextIsBarStart = (beatNext % (uint64_t)bpbNow) == 0;
+        if (crossesBeat && nextIsBarStart) {
+          pos = player.seekTargetFrames.load(std::memory_order_relaxed);
+          player.seekPending.store(false, std::memory_order_release);
+          player.metro.prepare_after_seek(pos, framesPerBeatSrc);
+        }
       }
 
       if (pos >= (double)(totalSrcFrames - 1)) {
@@ -769,8 +777,17 @@ int main(int argc, char** argv)
         size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
         if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
         if (target < 0.0) target = 0.0;
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(true, std::memory_order_release);
+        if (!g_player.playing.load()) {
+          g_player.srcPos = target;
+          // Prepare metronome state to the new position immediately
+          g_player.metro.prepare_after_seek(target, framesPerBeat);
+          g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+          g_player.seekPending.store(false, std::memory_order_relaxed);
+        } else {
+          // Queue seek to be applied at the next bar boundary
+          g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+          g_player.seekPending.store(true, std::memory_order_release);
+        }
       } catch (...) {
         std::cerr << "Invalid bar number.\n";
       }
