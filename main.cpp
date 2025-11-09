@@ -41,6 +41,58 @@ struct Track {
   std::vector<float> sound;
 };
 
+// Encapsulated metronome state and processing
+struct Metronome {
+  std::atomic<float> bpm{120.f};
+  std::atomic<int> bpb{4};
+
+  // runtime state
+  uint64_t lastBeatIndex = 0;
+  int clickSamplesLeft = 0;
+  int clickLen = 0; // in device samples
+  float clickPhase = 0.f;
+  float clickAmp = 0.f;
+
+  // click parameters
+  float clickFreqHz = 1000.f;
+  float downbeatAmp = 0.35f;
+  float beatAmp = 0.18f;
+
+  void reset_runtime() {
+    lastBeatIndex = 0;
+    clickSamplesLeft = 0;
+    clickLen = 0;
+    clickPhase = 0.f;
+    clickAmp = 0.f;
+  }
+
+  void prepare_after_seek(double posSrcFrames, double framesPerBeatSrc) {
+    reset_runtime();
+    lastBeatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
+  }
+
+  float process(double posSrcFrames, double framesPerBeatSrc, uint32_t devRate) {
+    if (clickLen == 0) clickLen = std::max(1, (int)(devRate / 100)); // ~10ms
+    uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
+    if (beatIndex != lastBeatIndex) {
+      lastBeatIndex = beatIndex;
+      clickSamplesLeft = clickLen;
+      clickPhase = 0.f;
+      int curBpb = std::max(1, bpb.load());
+      bool downbeat = (beatIndex % (uint64_t)curBpb) == 0;
+      clickAmp = downbeat ? downbeatAmp : beatAmp;
+    }
+    float click = 0.f;
+    if (clickSamplesLeft > 0) {
+      float env = (float)clickSamplesLeft / (float)clickLen; // linear decay
+      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqHz / (float)devRate;
+      click = clickAmp * std::sinf(clickPhase) * env;
+      --clickSamplesLeft;
+    }
+    return click;
+  }
+};
+
 // Track metadata persisted in the DB
 struct TrackInfo {
   std::filesystem::path filename;
@@ -155,8 +207,6 @@ struct TrackDB {
 struct PlayerState {
   std::atomic<bool> playing{false};
   std::shared_ptr<Track> track; // set before play; not swapped while playing
-  std::atomic<float> bpm{120.f};
-  std::atomic<int> bpb{4};
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
 
   // Seek control (source frames)
@@ -165,14 +215,8 @@ struct PlayerState {
 
   // Playback runtime (audio thread)
   double srcPos = 0.0;              // in source frames (fractional)
-  uint64_t lastBeatIndex = 0;       // beat counter in source domain
-  int clickSamplesLeft = 0;         // remaining click samples (device domain)
-  int clickLen = 0;                 // length of a click in device samples
-  float clickPhase = 0.f;           // 1kHz sine phase
-  float clickAmp = 0.f;             // current click amplitude
 
-  int deviceRate = 48000;
-  int deviceChannels = 2;
+  Metronome metro;
 };
 
 static PlayerState g_player;
@@ -268,15 +312,12 @@ static void play(
 {
   if (player.track) {
     auto &track = *player.track;
-    const float bpm = std::max(1.f, player.bpm.load());
-    const int bpb = std::max(1, player.bpb.load());
+    const float bpm = std::max(1.f, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
     const size_t srcCh = static_cast<size_t>(track.channels);
     const size_t totalSrcFrames = track.sound.size() / srcCh;
     if (totalSrcFrames == 0) return;
 
-    // Initialize click length if not set
-    if (player.clickLen == 0) player.clickLen = std::max(1, static_cast<int>(devRate / 100)); // ~10ms
 
     const double framesPerBeatSrc = (double)track.sample_rate * 60.0 / (double)bpm;
     const double incrSrcPerOut = (double)track.sample_rate / (double)devRate;
@@ -287,9 +328,7 @@ static void play(
       if (player.seekPending.load(std::memory_order_acquire)) {
 	pos = player.seekTargetFrames.load(std::memory_order_relaxed);
 	player.seekPending.store(false, std::memory_order_release);
-	player.clickSamplesLeft = 0;
-	player.clickPhase = 0.f;
-	player.lastBeatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
+	player.metro.prepare_after_seek(pos, framesPerBeatSrc);
       }
 
       if (pos >= (double)(totalSrcFrames - 1)) {
@@ -313,23 +352,7 @@ static void play(
       s1 /= (double)srcCh;
       float smp = (float)(s0 * (1.0 - frac) + s1 * frac);
 
-      // Metronome trigger on beat crossings (source domain)
-      uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
-      if (beatIndex != player.lastBeatIndex) {
-	player.lastBeatIndex = beatIndex;
-	player.clickSamplesLeft = player.clickLen;
-	player.clickPhase = 0.f;
-	bool downbeat = (bpb > 0) ? ((beatIndex % (uint64_t)bpb) == 0) : false;
-	player.clickAmp = downbeat ? 0.35f : 0.18f; // subtle to avoid clipping
-      }
-
-      float click = 0.f;
-      if (player.clickSamplesLeft > 0) {
-	float env = (float)player.clickSamplesLeft / (float)player.clickLen; // linear decay
-	player.clickPhase += 2.0f * std::numbers::pi_v<float> * 1000.0f / (float)devRate; // 1kHz
-	click = player.clickAmp * std::sinf(player.clickPhase) * env;
-	--player.clickSamplesLeft;
-      }
+      float click = player.metro.process(pos, framesPerBeatSrc, devRate);
 
       float mix = (smp * gainLin) + click;
       // write stereo (or whatever device channels)
@@ -498,8 +521,6 @@ int main(int argc, char** argv)
     return 1;
   }
   ma_device_start(&device);
-  g_player.deviceRate = device.sampleRate;
-  g_player.deviceChannels = device.playback.channels;
 
   g_db.load(trackdb_path);
 
@@ -565,16 +586,14 @@ int main(int argc, char** argv)
     g_player.srcPos = 0.0;
     g_player.seekTargetFrames.store(0.0);
     g_player.seekPending.store(false);
-    g_player.lastBeatIndex = 0;
-    g_player.clickSamplesLeft = 0;
-    g_player.clickPhase = 0.f;
     g_player.trackGainDB.store(0.f);
-    g_player.bpm.store(ti.bpm);
-    g_player.bpb.store(std::max(1, ti.beats_per_bar));
+    g_player.metro.reset_runtime();
+    g_player.metro.bpm.store(ti.bpm);
+    g_player.metro.bpb.store(std::max(1, ti.beats_per_bar));
 
     auto print_estimated_bars = [&](){
-      float bpmNow = std::max(1.f, g_player.bpm.load());
-      int bpbNow = std::max(1, g_player.bpb.load());
+      float bpmNow = std::max(1.f, g_player.metro.bpm.load());
+      int bpbNow = std::max(1, g_player.metro.bpb.load());
       size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
       double beats = (double)totalFrames / framesPerBeat;
@@ -591,13 +610,13 @@ int main(int argc, char** argv)
 
     sub.register_command("bpm", "bpm [value] - get/set BPM", [&](const std::vector<std::string>& a){
       if (a.empty()) {
-        std::println(std::cout, "BPM: {:.2f}", g_player.bpm.load());
+        std::println(std::cout, "BPM: {:.2f}", g_player.metro.bpm.load());
         return;
       }
       try {
         float v = std::stof(a[0]);
         if (v <= 0) throw std::runtime_error("BPM must be > 0");
-        g_player.bpm.store(v);
+        g_player.metro.bpm.store(v);
         ti.bpm = v;
         dirty = true;
         print_estimated_bars();
@@ -608,13 +627,13 @@ int main(int argc, char** argv)
 
     sub.register_command("bpb", "bpb [value] - get/set beats per bar", [&](const std::vector<std::string>& a){
       if (a.empty()) {
-        std::cout << "Beats/bar: " << g_player.bpb.load() << "\n";
+        std::cout << "Beats/bar: " << g_player.metro.bpb.load() << "\n";
         return;
       }
       try {
         int v = std::stoi(a[0]);
         if (v <= 0) throw std::runtime_error("bpb must be > 0");
-        g_player.bpb.store(v);
+        g_player.metro.bpb.store(v);
         ti.beats_per_bar = v;
         dirty = true;
         print_estimated_bars();
@@ -737,8 +756,8 @@ int main(int argc, char** argv)
       try {
         int bar1 = std::stoi(a[0]); // 1-based
         int bar0 = std::max(0, bar1 - 1);
-        float bpmNow = std::max(1.f, g_player.bpm.load());
-        int bpbNow = std::max(1, g_player.bpb.load());
+        float bpmNow = std::max(1.f, g_player.metro.bpm.load());
+        int bpbNow = std::max(1, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
         double target = (double)bar0 * (double)bpbNow * framesPerBeat;
         size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
