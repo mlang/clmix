@@ -1,3 +1,10 @@
+// Simple command-line tool to mix electronic music
+//
+// At least C++23 is required to compile this program.
+// No need for defensive programming.
+// We aim for beautiful code.
+
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
