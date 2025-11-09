@@ -13,6 +13,7 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -132,7 +133,7 @@ struct Metronome {
   float beatAmp = 0.18f;
 
   void reset_runtime() {
-    lastBeatIndex = 0;
+    lastBeatIndex = std::numeric_limits<uint64_t>::max();
     clickSamplesLeft = 0;
     clickLen = 0;
     clickPhase = 0.f;
@@ -142,7 +143,15 @@ struct Metronome {
 
   void prepare_after_seek(double posSrcFrames, double framesPerBeatSrc) {
     reset_runtime();
-    lastBeatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
+    const double q = std::max(0.0, posSrcFrames) / framesPerBeatSrc;
+    const double qFloor = std::floor(q);
+    const uint64_t bi = static_cast<uint64_t>(qFloor);
+    const double frac = q - qFloor;
+    if (std::abs(frac) < 1e-9) {
+      lastBeatIndex = bi - 1; // prime to trigger click at boundary (wraps for beat 0)
+    } else {
+      lastBeatIndex = bi;
+    }
   }
 
   float process(double posSrcFrames, double framesPerBeatSrc, uint32_t devRate) {
