@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <numbers>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -347,7 +348,7 @@ static void play(
 static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
   PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
-  auto output = multichannel(static_cast<float*>(pOutput),
+  multichannel<float> output(static_cast<float*>(pOutput),
     frameCount, pDevice->playback.channels
   );
 
