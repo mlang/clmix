@@ -4,7 +4,6 @@
 // No need for defensive programming.
 // We aim for beautiful code.
 
-
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -35,6 +34,8 @@ using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
 
 #include <sndfile.hh>
 
+#include <samplerate.h>
+
 extern "C" {
 #include <aubio/aubio.h>
 }
@@ -47,6 +48,69 @@ struct Track {
   int channels;
   std::vector<float> sound;
 };
+
+std::vector<float> change_tempo(
+  const std::vector<float> &samples, size_t channels,
+  float from_bpm, size_t from_rate,
+  float to_bpm, size_t to_rate
+) {
+    if (channels == 0)
+        return {};
+
+    if (samples.size() % channels != 0)
+        throw std::invalid_argument("Input size is not divisible by channels.");
+
+    if (from_bpm <= 0.0f || to_bpm <= 0.0f || from_rate == 0 || to_rate == 0)
+        throw std::invalid_argument("BPM and sample rates must be positive.");
+
+    const size_t in_frames_sz = samples.size() / channels;
+    if (in_frames_sz > static_cast<size_t>(std::numeric_limits<long>::max()))
+        throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
+
+    const long in_frames = static_cast<long>(in_frames_sz);
+
+    // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
+    // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
+    // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
+    const double ratio = (static_cast<double>(to_rate) / static_cast<double>(from_rate)) *
+                         (static_cast<double>(from_bpm) / static_cast<double>(to_bpm));
+
+    if (!(ratio > 0.0) || !std::isfinite(ratio))
+        throw std::invalid_argument("Invalid resampling ratio derived from inputs.");
+
+    // Estimate output frames (add 1 for safety).
+    const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
+    if (est_out_frames_d > static_cast<double>(std::numeric_limits<long>::max()))
+        throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
+
+    const long out_frames_est = static_cast<long>(est_out_frames_d);
+
+    std::vector<float> out;
+    out.resize(static_cast<size_t>(out_frames_est) * channels);
+
+    SRC_DATA data{};
+    data.data_in = samples.data();
+    data.data_out = out.data();
+    data.input_frames = in_frames;
+    data.output_frames = out_frames_est;
+    data.end_of_input = 1;
+    data.src_ratio = ratio;
+
+    // Choose your preferred converter quality:
+    // SRC_SINC_BEST_QUALITY, SRC_SINC_MEDIUM_QUALITY, SRC_SINC_FASTEST, etc.
+    const int converter_type = SRC_SINC_BEST_QUALITY;
+
+    if (channels > static_cast<size_t>(std::numeric_limits<int>::max()))
+        throw std::invalid_argument("Channel count too large for libsamplerate.");
+    const int ch = static_cast<int>(channels);
+
+    const int err = src_simple(&data, converter_type, ch);
+    if (err != 0)
+        throw std::runtime_error(src_strerror(err));
+
+    out.resize(static_cast<size_t>(data.output_frames_gen) * channels);
+    return out;
+}
 
 // Encapsulated metronome state and processing
 struct Metronome {
