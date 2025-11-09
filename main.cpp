@@ -18,8 +18,8 @@
 
 #include "vendor/mdspan.hpp"
 
+// We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
 using multichannel = Kokkos::mdspan<float, Kokkos::dextents<std::size_t, 2>>;
-
 
 #include <readline/history.h>
 #include <readline/readline.h>
