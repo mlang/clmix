@@ -177,7 +177,6 @@ struct PlayerState {
 
 static PlayerState g_player;
 static TrackDB g_db;
-static const std::filesystem::path g_db_path = "trackdb.txt";
 
 Track load_track(std::filesystem::path file)
 {
@@ -478,8 +477,15 @@ class REPL {
     bool running_ = true;
 };
 
-int main()
+int main(int argc, char** argv)
 {
+  if (argc < 2) {
+    std::cerr << "Usage: clmix <trackdb.txt>\n"
+                 "Provide the path to the track database file.\n";
+    return 2;
+  }
+  const std::filesystem::path trackdb_path = argv[1];
+
   ma_device_config config = ma_device_config_init(ma_device_type_playback);
   config.playback.format   = ma_format_f32;
   config.playback.channels = 2;
@@ -495,7 +501,7 @@ int main()
   g_player.deviceRate = device.sampleRate;
   g_player.deviceChannels = device.playback.channels;
 
-  g_db.load(g_db_path);
+  g_db.load(trackdb_path);
 
   REPL repl;
 
@@ -701,11 +707,11 @@ int main()
 
     sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](const std::vector<std::string>&){
       g_db.upsert(ti);
-      if (g_db.save(g_db_path)) {
-        std::cout << "Saved to " << g_db_path << "\n";
+      if (g_db.save(trackdb_path)) {
+        std::cout << "Saved to " << trackdb_path << "\n";
         dirty = false;
       } else {
-        std::cerr << "Failed to save DB to " << g_db_path << "\n";
+        std::cerr << "Failed to save DB to " << trackdb_path << "\n";
       }
     });
 
