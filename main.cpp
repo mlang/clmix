@@ -531,10 +531,18 @@ int main(int argc, char** argv)
   config.dataCallback      = callback;
   config.pUserData         = &g_player;
   ma_device device;
-  if (ma_device_init(NULL, &config, &device) != MA_SUCCESS) {
+  ma_result res = ma_device_init(NULL, &config, &device);
+  if (res != MA_SUCCESS) {
+    std::cerr << "Audio device init failed: " << ma_result_description(res) << "\n";
     return 1;
   }
-  ma_device_start(&device);
+
+  res = ma_device_start(&device);
+  if (res != MA_SUCCESS) {
+    std::cerr << "Audio device start failed: " << ma_result_description(res) << "\n";
+    ma_device_uninit(&device);
+    return 1;
+  }
 
   g_db.load(trackdb_path);
 
