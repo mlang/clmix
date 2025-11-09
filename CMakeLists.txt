@@ -5,9 +5,9 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(PkgConfig)
-pkg_check_modules(SndFile REQUIRED IMPORTED_TARGET sndfile)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
+pkg_check_modules(SndFile REQUIRED IMPORTED_TARGET sndfile)
 
 include(CheckIncludeFileCXX)
 check_include_file_cxx("miniaudio.h" HAVE_MINIAUDIO_H)
@@ -17,4 +17,6 @@ endif()
 
 add_executable(clmix main.cpp)
 target_compile_definitions(clmix PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1)
-target_link_libraries(clmix PRIVATE PkgConfig::SndFile PkgConfig::Aubio PkgConfig::Readline)
+target_link_libraries(clmix
+  PRIVATE PkgConfig::Aubio PkgConfig::Readline PkgConfig::SndFile
+)
