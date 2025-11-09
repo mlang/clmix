@@ -350,8 +350,7 @@ static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_u
     static_cast<float*>(pOutput), frameCount, pDevice->playback.channels
   );
 
-  if (!player.playing.load()) return;
-  play(player, output, pDevice->sampleRate);
+  if (player.playing.load()) play(player, output, pDevice->sampleRate);
 }
 
 // Shell-style tokenizer supporting quotes and backslashes.
