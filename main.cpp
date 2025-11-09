@@ -50,7 +50,7 @@ struct Track {
 
 // Encapsulated metronome state and processing
 struct Metronome {
-  std::atomic<float> bpm{120.f};
+  std::atomic<double> bpm{120.0};
   std::atomic<int> bpb{4};
 
   // runtime state
@@ -108,7 +108,7 @@ struct Metronome {
 struct TrackInfo {
   std::filesystem::path filename;
   int beats_per_bar = 4;
-  float bpm = 120.f; // required > 0
+  double bpm = 120.0; // required > 0
   std::vector<int> cue_bars; // 1-based bar numbers
 };
 
@@ -153,13 +153,13 @@ struct TrackDB {
         // Malformed line; skip
         continue;
       }
-      float bpm = 120.f;
+      double bpm = 120.0;
       if (iss >> bpm_tok) {
         try {
-          float v = std::stof(bpm_tok);
-          if (v > 0.f) bpm = v;
+          double v = std::stod(bpm_tok);
+          if (v > 0.0) bpm = v;
         } catch (...) {
-          bpm = 120.f;
+          bpm = 120.0;
         }
       }
       std::vector<int> cues;
@@ -323,7 +323,7 @@ static void play(
 {
   if (player.track) {
     auto &track = *player.track;
-    const float bpm = std::max(1.f, player.metro.bpm.load());
+    const auto bpm = std::max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
     const size_t srcCh = static_cast<size_t>(track.channels);
     const size_t totalSrcFrames = track.sound.size() / srcCh;
@@ -563,7 +563,7 @@ int main(int argc, char** argv)
     }
     auto tr = std::make_shared<Track>(std::move(t));
 
-    float guessedBpm = 0.f;
+    double guessedBpm = 0.0;
 
     TrackInfo ti;
     if (auto* existing = g_db.find(f)) {
@@ -598,7 +598,7 @@ int main(int argc, char** argv)
     g_player.metro.bpb.store(std::max(1, ti.beats_per_bar));
 
     auto print_estimated_bars = [&](){
-      float bpmNow = std::max(1.f, g_player.metro.bpm.load());
+      auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
       int bpbNow = std::max(1, g_player.metro.bpb.load());
       size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
@@ -620,7 +620,7 @@ int main(int argc, char** argv)
         return;
       }
       try {
-        float v = std::stof(a[0]);
+        double v = std::stod(a[0]);
         if (v <= 0) throw std::runtime_error("BPM must be > 0");
         g_player.metro.bpm.store(v);
         ti.bpm = v;
@@ -762,7 +762,7 @@ int main(int argc, char** argv)
       try {
         int bar1 = std::stoi(a[0]); // 1-based
         int bar0 = std::max(0, bar1 - 1);
-        float bpmNow = std::max(1.f, g_player.metro.bpm.load());
+        auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
         int bpbNow = std::max(1, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
         double target = (double)bar0 * (double)bpbNow * framesPerBeat;
