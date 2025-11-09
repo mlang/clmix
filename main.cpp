@@ -1,25 +1,26 @@
-#include <filesystem>
-#include <format>
-#include <iostream>
-#include <vector>
-#include <string>
-#include <stdexcept>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <unordered_map>
 #include <algorithm>
-#include <cctype>
-#include <functional>
-#include <memory>
 #include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <memory>
+#include <print>
+#include <stdexcept>
+#include <string>
+#include <sstream>
+#include <unordered_map>
+#include <vector>
 
 #include "vendor/mdspan.hpp"
 
 // We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
-using multichannel = Kokkos::mdspan<float, Kokkos::dextents<std::size_t, 2>>;
+template<typename T>
+using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -262,7 +263,7 @@ static inline T dbamp(T db)
 }
 
 static void play(
-  PlayerState &player, multichannel output, uint32_t devRate
+  PlayerState &player, multichannel<float> output, uint32_t devRate
 )
 {
   if (player.track) {
@@ -346,8 +347,8 @@ static void play(
 static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
   PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
-  multichannel output = Kokkos::mdspan(
-    static_cast<float*>(pOutput), frameCount, pDevice->playback.channels
+  auto output = multichannel(static_cast<float*>(pOutput),
+    frameCount, pDevice->playback.channels
   );
 
   if (player.playing.load()) play(player, output, pDevice->sampleRate);
@@ -482,6 +483,7 @@ int main()
   config.playback.format   = ma_format_f32;
   config.playback.channels = 2;
   config.sampleRate        = 48000;
+  config.noPreSilencedOutputBuffer = false;
   config.dataCallback      = callback;
   config.pUserData         = &g_player;
   ma_device device;
