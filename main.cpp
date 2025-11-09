@@ -313,6 +313,10 @@ static inline T dbamp(T db)
   return std::pow(T(10.0), db * T(0.05));
 }
 
+static inline float lininterp(float a, float b, float t) {
+  return std::lerp(a, b, t);
+}
+
 static void play(
   PlayerState &player, multichannel<float> output, uint32_t devRate
 )
@@ -343,28 +347,23 @@ static void play(
 	break;
       }
 
-      // Linear interpolation to mono
+      // Linear interpolation per channel
       size_t i0 = (size_t)pos;
       double frac = pos - (double)i0;
       size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
-
-      double s0 = 0.0, s1 = 0.0;
       size_t base0 = i0 * srcCh;
       size_t base1 = i1 * srcCh;
-      for (size_t c = 0; c < srcCh; ++c) {
-	s0 += track.sound[base0 + c];
-	s1 += track.sound[base1 + c];
-      }
-      s0 /= (double)srcCh;
-      s1 /= (double)srcCh;
-      float smp = (float)(s0 * (1.0 - frac) + s1 * frac);
 
       float click = player.metro.process(pos, framesPerBeatSrc, devRate);
 
-      float mix = (smp * gainLin) + click;
-      // write stereo (or whatever device channels)
+      // Write each output channel from the corresponding source channel (wrap if more outs)
       for (uint32_t ch = 0; ch < output.extent(1); ++ch) {
-	output[i, ch] = mix;
+        size_t srcC = (size_t)ch % srcCh;
+        float s0 = track.sound[base0 + srcC];
+        float s1 = track.sound[base1 + srcC];
+        float smp = lininterp(s0, s1, static_cast<float>(frac));
+        float mix = (smp * gainLin) + click;
+        output[i, ch] = mix;
       }
 
       pos += incrSrcPerOut;
