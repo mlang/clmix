@@ -9,6 +9,12 @@ pkg_check_modules(SndFile REQUIRED IMPORTED_TARGET sndfile)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
 
+include(CheckIncludeFileCXX)
+check_include_file_cxx("miniaudio.h" HAVE_MINIAUDIO_H)
+if (NOT HAVE_MINIAUDIO_H)
+  message(FATAL_ERROR "miniaudio.h not found. Install miniaudio or add its include directory to the build (e.g. set CMAKE_INCLUDE_PATH or use target_include_directories).")
+endif()
+
 add_executable(clmix main.cpp)
 target_compile_definitions(clmix PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1)
 target_link_libraries(clmix PRIVATE PkgConfig::SndFile PkgConfig::Aubio PkgConfig::Readline)
