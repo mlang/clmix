@@ -317,10 +317,6 @@ static inline T dbamp(T db)
   return std::pow(T(10.0), db * T(0.05));
 }
 
-static inline float lininterp(float a, float b, float t) {
-  return std::lerp(a, b, t);
-}
-
 static void play(
   PlayerState &player, multichannel<float> output, uint32_t devRate
 )
@@ -365,7 +361,7 @@ static void play(
         size_t srcC = (size_t)ch % srcCh;
         float s0 = track.sound[base0 + srcC];
         float s1 = track.sound[base1 + srcC];
-        float smp = lininterp(s0, s1, static_cast<float>(frac));
+        float smp = std::lerp(s0, s1, static_cast<float>(frac));
         float mix = (smp * gainLin) + click;
         output[i, ch] = mix;
       }
