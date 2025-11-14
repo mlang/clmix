@@ -46,7 +46,7 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-constexpr float kHeadroomDB = -4.0f;
+constexpr float kHeadroomDB = -5.0f;
 
 template<typename T>
 static inline T dbamp(T db)
@@ -403,10 +403,11 @@ float detect_bpm(const Track& track)
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem::path>& files,
-                                              std::optional<double> force_bpm = std::nullopt,
-                                              int converter_type = SRC_LINEAR)
-{
+static std::shared_ptr<Track> build_mix_track(
+  const std::vector<std::filesystem::path>& files,
+  std::optional<double> force_bpm = std::nullopt,
+  int converter_type = SRC_LINEAR
+) {
   if (files.empty()) return {};
 
   // Collect TrackInfo and ensure cues exist
