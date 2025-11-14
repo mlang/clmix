@@ -1177,6 +1177,10 @@ int main(int argc, char** argv)
     std::shuffle(all.begin(), all.end(), rng);
 
     g_mix_tracks = std::move(all);
+    std::cout << "Track order:\n";
+    for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
+      std::cout << "  " << (i + 1) << ". " << g_mix_tracks[i].generic_string() << "\n";
+    }
     try {
       g_player.playing.store(false);
       auto mixTrack = build_mix_track(g_mix_tracks);
