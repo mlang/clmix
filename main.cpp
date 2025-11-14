@@ -46,6 +46,8 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+constexpr float kHeadroomDB = -3.0f;
+
 struct Track {
   int sample_rate;
   int channels;
@@ -488,19 +490,25 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
   out->channels = outCh;
   out->sound.assign(totalFrames * (size_t)outCh, 0.0f);
 
-  // Envelope: fade-in from start->firstCue, unity in [firstCue,lastCue], fade-out lastCue->end
+  // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
   auto env = [](size_t f, size_t frames, double firstCue, double lastCue)->float {
     if (frames == 0) return 0.0f;
     if (lastCue < firstCue) std::swap(lastCue, firstCue);
     if ((double)f <= firstCue) {
-      return (firstCue > 0.0) ? float((double)f / firstCue) : 1.0f;
+      if (firstCue <= 0.0) return 1.0f;
+      double p = (double)f / firstCue; // 0..1
+      return (float)std::sin(0.5 * std::numbers::pi_v<double> * p);
     } else if ((double)f >= lastCue) {
       double denom = (double)frames - lastCue;
-      return denom > 1e-12 ? float(((double)frames - (double)f) / denom) : 0.0f;
+      if (denom <= 1e-12) return 0.0f;
+      double p = ((double)f - lastCue) / denom; // 0..1
+      return (float)std::cos(0.5 * std::numbers::pi_v<double> * p);
     } else {
       return 1.0f;
     }
   };
+
+  const float headroomLin = std::pow(10.0f, kHeadroomDB * 0.05f);
 
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
@@ -511,7 +519,7 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
       if (absF < 0.0) continue;
       size_t outF = (size_t)absF;
       if (outF >= totalFrames) break;
-      float a = env(f, it.frames, it.firstCue, it.lastCue);
+      float a = headroomLin * env(f, it.frames, it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
       size_t outBase = outF * outChS;
       size_t inBase  = f * inChS;
@@ -549,6 +557,7 @@ static void play(
     auto &track = *player.track;
     const auto bpm = std::max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
+    const float headroomLin = dbamp(kHeadroomDB);
     const size_t srcCh = static_cast<size_t>(track.channels);
     const size_t totalSrcFrames = track.sound.size() / srcCh;
     if (totalSrcFrames == 0) return;
@@ -594,7 +603,7 @@ static void play(
         float s0 = track.sound[base0 + srcC];
         float s1 = track.sound[base1 + srcC];
         float smp = std::lerp(s0, s1, static_cast<float>(frac));
-        float mix = (smp * gainLin) + click;
+        float mix = (smp * gainLin * headroomLin) + click;
         output[i, ch] = mix;
       }
 
