@@ -1188,6 +1188,48 @@ int main(int argc, char** argv)
     }
   });
 
+  repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](const std::vector<std::string>& a){
+    if (a.size() != 1) { std::cerr << "Usage: export <file.wav>\n"; return; }
+    if (g_mix_tracks.empty()) { std::cerr << "No tracks in mix.\n"; return; }
+
+    const std::filesystem::path outPath = a[0];
+    try {
+      // Stop playback to avoid concurrent access while rendering/exporting
+      g_player.playing.store(false);
+
+      // Rebuild a fresh mix with current BPM and tracks
+      auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm);
+      if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
+
+      const sf_count_t frames = static_cast<sf_count_t>(
+        mixTrack->sound.size() / static_cast<size_t>(mixTrack->channels)
+      );
+
+      // Open 24-bit WAV for writing
+      SndfileHandle sf(outPath.string(),
+                       SFM_WRITE,
+                       SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+                       mixTrack->channels,
+                       mixTrack->sample_rate);
+      if (sf.error()) {
+        std::cerr << "Failed to open output file: " << outPath << "\n";
+        return;
+      }
+
+      // Write frames; libsndfile converts float -> PCM_24 and clips if needed
+      const sf_count_t written = sf.writef(mixTrack->sound.data(), frames);
+      if (written != frames) {
+        std::cerr << "Short write: wrote " << written << " of " << frames << " frames.\n";
+      } else {
+        std::cout << "Exported " << frames
+                  << " frames (" << mixTrack->sample_rate << " Hz, "
+                  << mixTrack->channels << " ch) to " << outPath << "\n";
+      }
+    } catch (const std::exception& e) {
+      std::cerr << "Export failed: " << e.what() << "\n";
+    }
+  });
+
   repl.run("clmix> ");
 
   ma_device_uninit(&device);
