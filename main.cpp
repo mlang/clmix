@@ -46,7 +46,13 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-constexpr float kHeadroomDB = -3.0f;
+constexpr float kHeadroomDB = -4.0f;
+
+template<typename T>
+static inline T dbamp(T db)
+{
+  return std::pow(T(10.0), db * T(0.05));
+}
 
 struct Track {
   int sample_rate;
@@ -508,7 +514,7 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
     }
   };
 
-  const float headroomLin = std::pow(10.0f, kHeadroomDB * 0.05f);
+  const float headroomLin = dbamp(kHeadroomDB);
 
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
@@ -541,12 +547,6 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
   std::sort(g_mix_cue_frames.begin(), g_mix_cue_frames.end());
 
   return out;
-}
-
-template<typename T>
-static inline T dbamp(T db)
-{
-  return std::pow(T(10.0), db * T(0.05));
 }
 
 static void play(
