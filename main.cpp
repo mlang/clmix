@@ -564,7 +564,6 @@ static void play(
     auto &track = *player.track;
     const auto bpm = std::max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
-    const float headroomLin = dbamp(kHeadroomDB);
     const size_t srcCh = static_cast<size_t>(track.channels);
     const size_t totalSrcFrames = track.sound.size() / srcCh;
     if (totalSrcFrames == 0) return;
@@ -610,7 +609,7 @@ static void play(
         float s0 = track.sound[base0 + srcC];
         float s1 = track.sound[base1 + srcC];
         float smp = std::lerp(s0, s1, static_cast<float>(frac));
-        float mix = (smp * gainLin * headroomLin) + click;
+        float mix = (smp * gainLin) + click;
         output[i, ch] = mix;
       }
 
