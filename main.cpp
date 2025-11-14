@@ -545,6 +545,13 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
     }
   }
   std::sort(g_mix_cue_frames.begin(), g_mix_cue_frames.end());
+  // Remove near-duplicate cue frames caused by alignment overlaps
+  {
+    constexpr double eps = 1e-6;
+    auto it = std::unique(g_mix_cue_frames.begin(), g_mix_cue_frames.end(),
+                          [](double a, double b){ return std::abs(a - b) <= eps; });
+    g_mix_cue_frames.erase(it, g_mix_cue_frames.end());
+  }
 
   return out;
 }
