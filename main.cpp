@@ -912,7 +912,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
   sub.register_command("vol", "vol [dB] - get/set track volume in dB (0=unity, negative attenuates)", [&](const std::vector<std::string>& a){
     if (a.empty()) {
       float db = g_player.trackGainDB.load();
-      float lin = std::pow(10.f, db / 20.f);
+      float lin = dbamp(db);
       std::println(std::cout, "Track volume: {:.2f} dB (x{:.3f})", db, lin);
       return;
     }
@@ -927,7 +927,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       if (db < -60.f) db = -60.f;
       if (db > 12.f) db = 12.f;
       g_player.trackGainDB.store(db);
-      float lin = std::pow(10.f, db / 20.f);
+      float lin = dbamp(db);
       std::println(std::cout, "Track volume set to {:.2f} dB (x{:.3f})", db, lin);
     } catch (...) {
       std::cerr << "Invalid dB value.\n";
@@ -1232,7 +1232,7 @@ int main(int argc, char** argv)
         if (std::isfinite(a) && a > peak) peak = a;
       }
       // -0.1 dBFS target peak to leave a tiny safety margin
-      const double target = std::pow(10.0, -0.1 / 20.0);
+      const double target = dbamp(-0.1);
 
       if (peak > 0.0 && std::isfinite(peak)) {
         double gain = target / peak;
