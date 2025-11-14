@@ -1225,6 +1225,23 @@ int main(int argc, char** argv)
         mixTrack->sound.size() / static_cast<size_t>(mixTrack->channels)
       );
 
+      // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
+      double peak = 0.0;
+      for (float s : mixTrack->sound) {
+        double a = std::abs((double)s);
+        if (std::isfinite(a) && a > peak) peak = a;
+      }
+      // -0.1 dBFS target peak to leave a tiny safety margin
+      const double target = std::pow(10.0, -0.1 / 20.0);
+
+      if (peak > 0.0 && std::isfinite(peak)) {
+        double gain = target / peak;
+        if (gain > 1.0) {
+          for (auto& s : mixTrack->sound) s = (float)(s * gain);
+          std::println(std::cout, "Applied export gain: +{:.2f} dB", 20.0 * std::log10(gain));
+        }
+      }
+
       // Open 24-bit WAV for writing
       SndfileHandle sf(outPath.string(),
                        SFM_WRITE,
