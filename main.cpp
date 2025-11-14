@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <vector>
 #include <optional>
+#include <random>
 
 #include "vendor/mdspan.hpp"
 
@@ -1145,6 +1146,45 @@ int main(int argc, char** argv)
     for (double f : g_mix_cue_frames) {
       long mixBar = (long)(std::floor(f / (fpb * (double)g_mix_bpb)) + 1.0);
       std::cout << "bar " << mixBar << "\n";
+    }
+  });
+
+  repl.register_command("random", "random - build mix from all trackdb entries in random order", [&](const std::vector<std::string>&){
+    if (g_db.items.empty()) {
+      std::cerr << "Track DB is empty.\n";
+      return;
+    }
+    std::vector<std::filesystem::path> all;
+    all.reserve(g_db.items.size());
+    for (const auto& kv : g_db.items) {
+      const TrackInfo& ti = kv.second;
+      if (!ti.cue_bars.empty()) all.push_back(ti.filename);
+    }
+    if (all.empty()) {
+      std::cerr << "No tracks with cues in DB.\n";
+      return;
+    }
+    std::mt19937 rng(std::random_device{}());
+    std::shuffle(all.begin(), all.end(), rng);
+
+    g_mix_tracks = std::move(all);
+    try {
+      g_player.playing.store(false);
+      auto mixTrack = build_mix_track(g_mix_tracks);
+      if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
+      g_player.track = mixTrack;
+      g_player.srcPos = 0.0;
+      g_player.seekPending.store(false);
+      g_player.seekTargetFrames.store(0.0);
+      g_player.trackGainDB.store(0.f);
+      g_player.metro.reset_runtime();
+      g_player.metro.bpm.store(g_mix_bpm);
+      g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+      std::cout << "Random mix created with " << g_mix_tracks.size()
+                << " tracks. BPM: " << g_mix_bpm
+                << ", BPB: " << g_mix_bpb << "\n";
+    } catch (const std::exception& e) {
+      std::cerr << "Failed to build random mix: " << e.what() << "\n";
     }
   });
 
