@@ -408,7 +408,7 @@ static void play(
 
     double pos = player.srcPos;
 
-    for (uint32_t i = 0; i < output.extent(0); ++i) {
+    for (size_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load(std::memory_order_acquire)) {
         unsigned bpbNow = std::max(1u, player.metro.bpb.load());
@@ -438,8 +438,8 @@ static void play(
       float click = player.metro.process(pos, framesPerBeatSrc, devRate);
 
       // Write each output channel from the corresponding source channel (wrap if more outs)
-      for (uint32_t ch = 0; ch < output.extent(1); ++ch) {
-        size_t srcC = (size_t)ch % srcCh;
+      for (size_t ch = 0; ch < output.extent(1); ++ch) {
+        size_t srcC = ch % srcCh;
         float s0 = track.sound[base0 + srcC];
         float s1 = track.sound[base1 + srcC];
         float smp = std::lerp(s0, s1, static_cast<float>(frac));
@@ -457,11 +457,13 @@ static void play(
 static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
   PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
-  multichannel<float> output(static_cast<float*>(pOutput),
-    frameCount, pDevice->playback.channels
-  );
 
-  if (player.playing.load()) play(player, output, pDevice->sampleRate);
+  if (player.playing.load()) {
+    multichannel<float> output(static_cast<float*>(pOutput),
+      frameCount, pDevice->playback.channels
+    );
+    play(player, output, pDevice->sampleRate);
+  }
 }
 
 // Shell-style tokenizer supporting quotes and backslashes.
