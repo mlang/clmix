@@ -63,7 +63,8 @@ struct Track {
 static std::vector<float> change_tempo(
   const std::vector<float> &samples, size_t channels,
   float from_bpm, size_t from_rate,
-  float to_bpm, size_t to_rate
+  float to_bpm, size_t to_rate,
+  int converter_type
 ) {
     if (channels == 0)
         return {};
@@ -107,9 +108,6 @@ static std::vector<float> change_tempo(
     data.end_of_input = 1;
     data.src_ratio = ratio;
 
-    // Choose your preferred converter quality:
-    // SRC_SINC_BEST_QUALITY, SRC_SINC_MEDIUM_QUALITY, SRC_SINC_FASTEST, etc.
-    const int converter_type = SRC_SINC_BEST_QUALITY;
 
     if (channels > static_cast<size_t>(std::numeric_limits<int>::max()))
         throw std::invalid_argument("Channel count too large for libsamplerate.");
@@ -406,7 +404,8 @@ float detect_bpm(const Track& track)
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
 static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem::path>& files,
-                                              std::optional<double> force_bpm = std::nullopt)
+                                              std::optional<double> force_bpm = std::nullopt,
+                                              int converter_type = SRC_LINEAR)
 {
   if (files.empty()) return {};
 
@@ -455,7 +454,8 @@ static std::shared_ptr<Track> build_mix_track(const std::vector<std::filesystem:
     std::vector<float> res = change_tempo(
       t.sound, (size_t)t.channels,
       (float)std::max(1e-6, ti.bpm), (size_t)t.sample_rate,
-      (float)bpm, (size_t)outRate
+      (float)bpm, (size_t)outRate,
+      converter_type
     );
     size_t frames = res.size() / (size_t)t.channels;
 
@@ -1211,7 +1211,7 @@ int main(int argc, char** argv)
       g_player.playing.store(false);
 
       // Rebuild a fresh mix with current BPM and tracks
-      auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm);
+      auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
       if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
 
       const sf_count_t frames = static_cast<sf_count_t>(
