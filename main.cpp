@@ -26,6 +26,7 @@
 #include <vector>
 #include <optional>
 #include <random>
+#include <type_traits>
 
 #include "vendor/mdspan.hpp"
 
@@ -94,65 +95,65 @@ struct Interleaved {
   }
 };
 
-static std::vector<float> change_tempo(
-  const std::vector<float> &samples, size_t channels,
-  float from_bpm, size_t from_rate,
-  float to_bpm, size_t to_rate,
+template<typename T>
+static Interleaved<T> change_tempo(
+  const Interleaved<T>& in,
+  float from_bpm, float to_bpm,
+  std::size_t to_rate,
   int converter_type
 ) {
-    if (channels == 0)
-        return {};
+  static_assert(std::is_same_v<T, float>, "change_tempo currently supports T=float only");
+  const std::size_t channels = in.channels();
+  const std::size_t in_frames_sz = in.frames();
 
-    if (samples.size() % channels != 0)
-        throw std::invalid_argument("Input size is not divisible by channels.");
+  if (channels == 0 || in_frames_sz == 0)
+    return Interleaved<T>{};
 
-    if (from_bpm <= 0.0f || to_bpm <= 0.0f || from_rate == 0 || to_rate == 0)
-        throw std::invalid_argument("BPM and sample rates must be positive.");
+  if (from_bpm <= 0.0f || to_bpm <= 0.0f || in.sample_rate <= 0 || to_rate == 0)
+    throw std::invalid_argument("BPM and sample rates must be positive.");
 
-    const size_t in_frames_sz = samples.size() / channels;
-    if (in_frames_sz > static_cast<size_t>(std::numeric_limits<long>::max()))
-        throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
+  if (in_frames_sz > static_cast<std::size_t>(std::numeric_limits<long>::max()))
+    throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
 
-    const long in_frames = static_cast<long>(in_frames_sz);
+  const long in_frames = static_cast<long>(in_frames_sz);
 
-    // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
-    // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
-    // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
-    const double ratio = (static_cast<double>(to_rate) / static_cast<double>(from_rate)) *
-                         (static_cast<double>(from_bpm) / static_cast<double>(to_bpm));
+  // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
+  // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
+  // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
+  const double ratio =
+      (static_cast<double>(to_rate) / static_cast<double>(in.sample_rate)) *
+      (static_cast<double>(from_bpm) / static_cast<double>(to_bpm));
 
-    if (!(ratio > 0.0) || !std::isfinite(ratio))
-        throw std::invalid_argument("Invalid resampling ratio derived from inputs.");
+  if (!(ratio > 0.0) || !std::isfinite(ratio))
+    throw std::invalid_argument("Invalid resampling ratio derived from inputs.");
 
-    // Estimate output frames (add 1 for safety).
-    const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
-    if (est_out_frames_d > static_cast<double>(std::numeric_limits<long>::max()))
-        throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
+  // Estimate output frames (add 1 for safety).
+  const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
+  if (est_out_frames_d > static_cast<double>(std::numeric_limits<long>::max()))
+    throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
 
-    const long out_frames_est = static_cast<long>(est_out_frames_d);
+  const long out_frames_est = static_cast<long>(est_out_frames_d);
 
-    std::vector<float> out;
-    out.resize(static_cast<size_t>(out_frames_est) * channels);
+  Interleaved<T> out(static_cast<int>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
 
-    SRC_DATA data{};
-    data.data_in = samples.data();
-    data.data_out = out.data();
-    data.input_frames = in_frames;
-    data.output_frames = out_frames_est;
-    data.end_of_input = 1;
-    data.src_ratio = ratio;
+  SRC_DATA data{};
+  data.data_in = in.storage.data();
+  data.data_out = out.storage.data();
+  data.input_frames = in_frames;
+  data.output_frames = out_frames_est;
+  data.end_of_input = 1;
+  data.src_ratio = ratio;
 
+  if (channels > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    throw std::invalid_argument("Channel count too large for libsamplerate.");
+  const int ch = static_cast<int>(channels);
 
-    if (channels > static_cast<size_t>(std::numeric_limits<int>::max()))
-        throw std::invalid_argument("Channel count too large for libsamplerate.");
-    const int ch = static_cast<int>(channels);
+  const int err = src_simple(&data, converter_type, ch);
+  if (err != 0)
+    throw std::runtime_error(src_strerror(err));
 
-    const int err = src_simple(&data, converter_type, ch);
-    if (err != 0)
-        throw std::runtime_error(src_strerror(err));
-
-    out.resize(static_cast<size_t>(data.output_frames_gen) * channels);
-    return out;
+  out.resize(static_cast<std::size_t>(data.output_frames_gen));
+  return out;
 }
 
 // Encapsulated metronome state and processing
@@ -466,10 +467,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
   struct Item {
     std::filesystem::path file;
     TrackInfo ti;
-    size_t inCh;
-    std::vector<float> res;
-    multichannel<float> view;
-    size_t frames;
+    Interleaved<float> res;
     double firstCue;
     double lastCue;
     double offset;
@@ -482,13 +480,14 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
     Interleaved<float> t = load_track(files[i]);
     const auto& ti = tis[i];
 
-    std::vector<float> res = change_tempo(
-      t.storage, t.channels(),
-      (float)std::max(1e-6, ti.bpm), (size_t)t.sample_rate,
-      (float)bpm, (size_t)outRate,
+    Interleaved<float> res = change_tempo(
+      t,
+      (float)std::max(1e-6, ti.bpm),
+      (float)bpm,
+      (std::size_t)outRate,
       converter_type
     );
-    size_t frames = res.size() / t.channels();
+    size_t frames = res.frames();
 
     int firstBar = ti.cue_bars.front();
     int lastBar  = ti.cue_bars.back();
@@ -502,8 +501,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
       lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
     }
 
-    items.push_back(Item{ files[i], ti, t.channels(), std::move(res), multichannel<float>{}, frames, firstCue, lastCue, 0.0 });
-    items.back().view = multichannel<float>(items.back().res.data(), frames, t.channels());
+    items.push_back(Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 });
   }
 
   // Offsets: align last cue of A with first cue of B
@@ -520,7 +518,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
   // Determine total frames
   size_t totalFrames = 0;
   for (auto& it : items) {
-    totalFrames = std::max(totalFrames, (size_t)std::ceil(it.offset) + it.frames);
+    totalFrames = std::max(totalFrames, (size_t)std::ceil(it.offset) + it.res.frames());
   }
 
   auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
@@ -549,19 +547,18 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
-    const size_t inChS = it.inCh;
-    for (size_t f = 0; f < it.frames; ++f) {
+    const size_t inChS = it.res.channels();
+    for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       size_t outF = (size_t)absF;
       if (outF >= totalFrames) break;
-      float a = headroomLin * env(f, it.frames, it.firstCue, it.lastCue);
+      float a = headroomLin * env(f, it.res.frames(), it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
-      size_t outBase = outF * outChS;
-      size_t inBase  = f * inChS;
+
       for (size_t ch = 0; ch < outChS; ++ch) {
         size_t sC = ch % inChS;
-        out->audio[outF, ch] += a * it.view[f, sC];
+        out->audio[outF, ch] += a * it.res.audio[f, sC];
       }
     }
   }
