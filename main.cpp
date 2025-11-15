@@ -99,19 +99,17 @@ public:
   }
 };
 
-template<typename T>
-static Interleaved<T> change_tempo(
-  const Interleaved<T>& in,
+static Interleaved<float> change_tempo(
+  const Interleaved<float>& in,
   double from_bpm, double to_bpm,
   std::size_t to_rate,
   int converter_type
 ) {
-  static_assert(std::is_same_v<T, float>, "change_tempo currently supports T=float only");
   const std::size_t channels = in.channels();
   const std::size_t in_frames_sz = in.frames();
 
   if (channels == 0 || in_frames_sz == 0)
-    return Interleaved<T>{};
+    return {};
 
   if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate <= 0 || to_rate == 0)
     throw std::invalid_argument("BPM and sample rates must be positive.");
@@ -138,7 +136,7 @@ static Interleaved<T> change_tempo(
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
-  Interleaved<T> out(static_cast<int>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
+  Interleaved<float> out(static_cast<int>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
 
   SRC_DATA data{};
   data.data_in = in.data();
