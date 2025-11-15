@@ -48,7 +48,7 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-constexpr float kHeadroomDB = -5.0f;
+constexpr float kHeadroomDB = -6.0f;
 
 template<typename T>
 static inline T dbamp(T db)
