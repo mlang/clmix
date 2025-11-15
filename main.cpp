@@ -54,6 +54,12 @@ static inline T dbamp(T db)
   return std::pow(T(10.0), db * T(0.05));
 }
 
+template<typename T>
+static inline T ampdb(T amp)
+{
+  return T(20.0) * std::log10(amp);
+}
+
 struct Track {
   int sample_rate;
   int channels;
@@ -422,10 +428,10 @@ static std::shared_ptr<Track> build_mix_track(
   }
 
   // Mix BPM default: mean of track bpms (unless forced)
-  double bpm = force_bpm.value_or([&]{
-    double s = 0.0;
-    for (auto& t : tis) s += std::max(1e-6, t.bpm);
-    return s / (double)tis.size();
+  auto bpm = force_bpm.value_or([&]{
+    return std::accumulate(std::next(tis.begin()), tis.end(), tis.front().bpm,
+      [](double a, TrackInfo const &b) { return a + b.bpm; }
+    ) / static_cast<double>(tis.size());
   }());
   g_mix_bpm = bpm;
   g_mix_bpb = tis.front().beats_per_bar;
@@ -1238,7 +1244,7 @@ int main(int argc, char** argv)
         double gain = target / peak;
         if (gain > 1.0) {
           for (auto& s : mixTrack->sound) s = (float)(s * gain);
-          std::println(std::cout, "Applied export gain: +{:.2f} dB", 20.0 * std::log10(gain));
+          std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
       }
 
