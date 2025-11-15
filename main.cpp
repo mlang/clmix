@@ -17,6 +17,7 @@
 #include <iostream>
 #include <memory>
 #include <numbers>
+#include <numeric>
 #include <print>
 #include <stdexcept>
 #include <string>
@@ -61,9 +62,54 @@ static inline T ampdb(T amp)
 }
 
 struct Track {
-  int sample_rate;
-  int channels;
+  int sample_rate = 0;
+  int channels = 0;
   std::vector<float> sound;
+  multichannel<float> audio{}; // non-owning view over 'sound'
+
+  Track() = default;
+
+  Track(int sr, int ch, std::size_t frames)
+  : sample_rate(sr),
+    channels(ch),
+    sound(frames * static_cast<std::size_t>(ch)),
+    audio(sound.data(), frames, static_cast<std::size_t>(ch)) {}
+
+  // move-only
+  Track(const Track&) = delete;
+  Track& operator=(const Track&) = delete;
+
+  Track(Track&& other) noexcept
+  : sample_rate(other.sample_rate),
+    channels(other.channels),
+    sound(std::move(other.sound)) {
+    audio = multichannel<float>(sound.data(), frames(), static_cast<std::size_t>(channels));
+    other.sample_rate = 0;
+    other.channels = 0;
+    other.audio = multichannel<float>(nullptr, 0, 0);
+  }
+
+  Track& operator=(Track&& other) noexcept {
+    if (this != &other) {
+      sample_rate = other.sample_rate;
+      channels = other.channels;
+      sound = std::move(other.sound);
+      audio = multichannel<float>(sound.data(), frames(), static_cast<std::size_t>(channels));
+      other.sample_rate = 0;
+      other.channels = 0;
+      other.audio = multichannel<float>(nullptr, 0, 0);
+    }
+    return *this;
+  }
+
+  std::size_t frames() const {
+    return channels > 0 ? sound.size() / static_cast<std::size_t>(channels) : 0;
+  }
+
+  void resize(std::size_t new_frames) {
+    sound.resize(new_frames * static_cast<std::size_t>(channels));
+    audio = multichannel<float>(sound.data(), new_frames, static_cast<std::size_t>(channels));
+  }
 };
 
 static std::vector<float> change_tempo(
@@ -335,19 +381,15 @@ Track load_track(std::filesystem::path file)
     throw std::runtime_error("Failed to open audio file: " + file.string());
   }
 
-  Track track;
-  track.sample_rate = sf.samplerate();
-  track.channels = sf.channels();
-
   const sf_count_t frames = sf.frames();
-  track.sound.resize(static_cast<std::size_t>(frames) * static_cast<std::size_t>(track.channels));
+  Track track(sf.samplerate(), sf.channels(), static_cast<std::size_t>(frames));
 
   const sf_count_t read_frames = sf.readf(track.sound.data(), frames);
   if (read_frames < 0) {
     throw std::runtime_error("Failed to read audio data from file: " + file.string());
   }
   if (read_frames != frames) {
-    track.sound.resize(static_cast<std::size_t>(read_frames) * static_cast<std::size_t>(track.channels));
+    track.resize(static_cast<std::size_t>(read_frames));
   }
 
   return track;
@@ -355,7 +397,7 @@ Track load_track(std::filesystem::path file)
 
 float detect_bpm(const Track& track)
 {
-  if (track.sample_rate <= 0 || track.channels <= 0 || track.sound.empty()) {
+  if (track.sample_rate <= 0 || track.channels <= 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
   }
 
@@ -378,17 +420,16 @@ float detect_bpm(const Track& track)
   }
 
   const std::size_t channels = static_cast<std::size_t>(track.channels);
-  const std::size_t total_frames = track.sound.size() / channels;
+  const std::size_t total_frames = track.frames();
 
   for (std::size_t frame = 0; frame < total_frames; frame += hop_s) {
     for (uint_t j = 0; j < hop_s; ++j) {
       const std::size_t fr = frame + j;
       float v = 0.f;
       if (fr < total_frames) {
-        const std::size_t base = fr * channels;
         float sum = 0.f;
         for (std::size_t c = 0; c < channels; ++c) {
-          sum += track.sound[base + c];
+          sum += track.audio[fr, c];
         }
         v = sum / static_cast<float>(channels);
       }
@@ -445,6 +486,7 @@ static std::shared_ptr<Track> build_mix_track(
     TrackInfo ti;
     int inCh;
     std::vector<float> res;
+    multichannel<float> view;
     size_t frames;
     double firstCue;
     double lastCue;
@@ -478,7 +520,8 @@ static std::shared_ptr<Track> build_mix_track(
       lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
     }
 
-    items.push_back(Item{ files[i], ti, t.channels, std::move(res), frames, firstCue, lastCue, 0.0 });
+    items.push_back(Item{ files[i], ti, t.channels, std::move(res), multichannel<float>{}, frames, firstCue, lastCue, 0.0 });
+    items.back().view = multichannel<float>(items.back().res.data(), frames, static_cast<std::size_t>(t.channels));
   }
 
   // Offsets: align last cue of A with first cue of B
@@ -498,10 +541,8 @@ static std::shared_ptr<Track> build_mix_track(
     totalFrames = std::max(totalFrames, (size_t)std::ceil(it.offset) + it.frames);
   }
 
-  auto out = std::make_shared<Track>();
-  out->sample_rate = outRate;
-  out->channels = outCh;
-  out->sound.assign(totalFrames * (size_t)outCh, 0.0f);
+  auto out = std::make_shared<Track>(outRate, outCh, totalFrames);
+  std::fill(out->sound.begin(), out->sound.end(), 0.0f);
 
   // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
   auto env = [](size_t f, size_t frames, double firstCue, double lastCue)->float {
@@ -538,7 +579,7 @@ static std::shared_ptr<Track> build_mix_track(
       size_t inBase  = f * inChS;
       for (size_t ch = 0; ch < outChS; ++ch) {
         size_t sC = ch % inChS;
-        out->sound[outBase + ch] += a * it.res[inBase + sC];
+        out->audio[outF, ch] += a * it.view[f, sC];
       }
     }
   }
@@ -572,7 +613,7 @@ static void play(
     const auto bpm = std::max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
     const size_t srcCh = static_cast<size_t>(track.channels);
-    const size_t totalSrcFrames = track.sound.size() / srcCh;
+    const size_t totalSrcFrames = track.frames();
     if (totalSrcFrames == 0) return;
 
 
@@ -613,8 +654,8 @@ static void play(
       // Write each output channel from the corresponding source channel (wrap if more outs)
       for (size_t ch = 0; ch < output.extent(1); ++ch) {
         size_t srcC = ch % srcCh;
-        float s0 = track.sound[base0 + srcC];
-        float s1 = track.sound[base1 + srcC];
+        float s0 = track.audio[i0, srcC];
+        float s1 = track.audio[i1, srcC];
         float smp = std::lerp(s0, s1, static_cast<float>(frac));
         float mix = (smp * gainLin) + click;
         output[i, ch] = mix;
@@ -810,7 +851,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
   auto print_estimated_bars = [&](){
     auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
     unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
-    size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
+    size_t totalFrames = tr->frames();
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
     double beats = (double)totalFrames / framesPerBeat;
     double bars = beats / static_cast<double>(bpbNow);
@@ -975,7 +1016,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
       double target = (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
-      size_t totalFrames = tr->sound.size() / (size_t)tr->channels;
+      size_t totalFrames = tr->frames();
       if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
@@ -1145,7 +1186,7 @@ int main(int argc, char** argv)
       int bar0 = std::max(0, bar1 - 1);
       double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
       double target = (double)bar0 * (double)g_mix_bpb * framesPerBeat;
-      size_t totalFrames = g_player.track->sound.size() / (size_t)g_player.track->channels;
+      size_t totalFrames = g_player.track->frames();
       if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
@@ -1227,9 +1268,7 @@ int main(int argc, char** argv)
       auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
       if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
 
-      const sf_count_t frames = static_cast<sf_count_t>(
-        mixTrack->sound.size() / static_cast<size_t>(mixTrack->channels)
-      );
+      const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
 
       // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
       double peak = 0.0;
