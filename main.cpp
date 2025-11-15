@@ -64,51 +64,31 @@ static inline T ampdb(T amp)
 struct Track {
   int sample_rate = 0;
   int channels = 0;
-  std::vector<float> sound;
-  multichannel<float> audio{}; // non-owning view over 'sound'
+  std::vector<float> storage;
+  multichannel<float> audio{}; // non-owning view over 'storage'
 
   Track() = default;
 
   Track(int sr, int ch, std::size_t frames)
   : sample_rate(sr),
     channels(ch),
-    sound(frames * static_cast<std::size_t>(ch)),
-    audio(sound.data(), frames, static_cast<std::size_t>(ch)) {}
+    storage(frames * static_cast<std::size_t>(ch)),
+    audio(storage.data(), frames, static_cast<std::size_t>(ch)) {}
 
   // move-only
   Track(const Track&) = delete;
   Track& operator=(const Track&) = delete;
 
-  Track(Track&& other) noexcept
-  : sample_rate(other.sample_rate),
-    channels(other.channels),
-    sound(std::move(other.sound)) {
-    audio = multichannel<float>(sound.data(), frames(), static_cast<std::size_t>(channels));
-    other.sample_rate = 0;
-    other.channels = 0;
-    other.audio = multichannel<float>(nullptr, 0, 0);
-  }
-
-  Track& operator=(Track&& other) noexcept {
-    if (this != &other) {
-      sample_rate = other.sample_rate;
-      channels = other.channels;
-      sound = std::move(other.sound);
-      audio = multichannel<float>(sound.data(), frames(), static_cast<std::size_t>(channels));
-      other.sample_rate = 0;
-      other.channels = 0;
-      other.audio = multichannel<float>(nullptr, 0, 0);
-    }
-    return *this;
-  }
+  Track(Track&&) noexcept = default;
+  Track& operator=(Track&&) noexcept = default;
 
   std::size_t frames() const {
-    return channels > 0 ? sound.size() / static_cast<std::size_t>(channels) : 0;
+    return channels > 0 ? storage.size() / static_cast<std::size_t>(channels) : 0;
   }
 
   void resize(std::size_t new_frames) {
-    sound.resize(new_frames * static_cast<std::size_t>(channels));
-    audio = multichannel<float>(sound.data(), new_frames, static_cast<std::size_t>(channels));
+    storage.resize(new_frames * static_cast<std::size_t>(channels));
+    audio = multichannel<float>(storage.data(), new_frames, static_cast<std::size_t>(channels));
   }
 };
 
@@ -384,7 +364,7 @@ Track load_track(std::filesystem::path file)
   const sf_count_t frames = sf.frames();
   Track track(sf.samplerate(), sf.channels(), static_cast<std::size_t>(frames));
 
-  const sf_count_t read_frames = sf.readf(track.sound.data(), frames);
+  const sf_count_t read_frames = sf.readf(track.storage.data(), frames);
   if (read_frames < 0) {
     throw std::runtime_error("Failed to read audio data from file: " + file.string());
   }
@@ -501,7 +481,7 @@ static std::shared_ptr<Track> build_mix_track(
     const auto& ti = tis[i];
 
     std::vector<float> res = change_tempo(
-      t.sound, (size_t)t.channels,
+      t.storage, (size_t)t.channels,
       (float)std::max(1e-6, ti.bpm), (size_t)t.sample_rate,
       (float)bpm, (size_t)outRate,
       converter_type
@@ -542,7 +522,7 @@ static std::shared_ptr<Track> build_mix_track(
   }
 
   auto out = std::make_shared<Track>(outRate, outCh, totalFrames);
-  std::fill(out->sound.begin(), out->sound.end(), 0.0f);
+  std::fill(out->storage.begin(), out->storage.end(), 0.0f);
 
   // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
   auto env = [](size_t f, size_t frames, double firstCue, double lastCue)->float {
@@ -1272,7 +1252,7 @@ int main(int argc, char** argv)
 
       // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
       double peak = 0.0;
-      for (float s : mixTrack->sound) {
+      for (float s : mixTrack->storage) {
         double a = std::abs((double)s);
         if (std::isfinite(a) && a > peak) peak = a;
       }
@@ -1282,7 +1262,7 @@ int main(int argc, char** argv)
       if (peak > 0.0 && std::isfinite(peak)) {
         double gain = target / peak;
         if (gain > 1.0) {
-          for (auto& s : mixTrack->sound) s = (float)(s * gain);
+          for (auto& s : mixTrack->storage) s = (float)(s * gain);
           std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
       }
@@ -1299,7 +1279,7 @@ int main(int argc, char** argv)
       }
 
       // Write frames; libsndfile converts float -> PCM_24 and clips if needed
-      const sf_count_t written = sf.writef(mixTrack->sound.data(), frames);
+      const sf_count_t written = sf.writef(mixTrack->storage.data(), frames);
       if (written != frames) {
         std::cerr << "Short write: wrote " << written << " of " << frames << " frames.\n";
       } else {
