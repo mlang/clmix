@@ -63,11 +63,10 @@ static inline T ampdb(T amp)
 }
 
 template<typename T>
-struct Interleaved {
-  int sample_rate = 0;
-private:
+class Interleaved {
   std::vector<T> storage;
 public:
+  int sample_rate = 0;
   multichannel<T> audio{}; // non-ownning view over 'storage'
 
   Interleaved() = default;
@@ -354,7 +353,7 @@ struct PlayerState {
 static PlayerState g_player;
 static TrackDB g_db;
 
-static uint32_t g_device_rate = 48000;
+static uint32_t g_device_rate = 44100;
 static uint32_t g_device_channels = 2;
 
 static std::vector<std::filesystem::path> g_mix_tracks;
@@ -1037,7 +1036,7 @@ int main(int argc, char** argv)
   ma_device_config config = ma_device_config_init(ma_device_type_playback);
   config.playback.format   = ma_format_f32;
   config.playback.channels = 2;
-  config.sampleRate        = 48000;
+  config.sampleRate        = 44100;
   config.noPreSilencedOutputBuffer = false;
   config.dataCallback      = callback;
   config.pUserData         = &g_player;
