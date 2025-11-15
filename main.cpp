@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -66,12 +67,12 @@ template<typename T>
 class Interleaved {
   std::vector<T> storage;
 public:
-  int sample_rate = 0;
+  uint32_t sample_rate = 0;
   multichannel<T> audio{}; // non-ownning view over 'storage'
 
   Interleaved() = default;
 
-  Interleaved(int sr, std::size_t ch, std::size_t frames)
+  Interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
   : sample_rate(sr),
     storage(frames * ch),
     audio(storage.data(), frames, ch)
@@ -111,7 +112,7 @@ static Interleaved<float> change_tempo(
   if (channels == 0 || in_frames_sz == 0)
     return {};
 
-  if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate <= 0 || to_rate == 0)
+  if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate == 0 || to_rate == 0)
     throw std::invalid_argument("BPM and sample rates must be positive.");
 
   if (in_frames_sz > static_cast<std::size_t>(std::numeric_limits<long>::max()))
@@ -136,7 +137,7 @@ static Interleaved<float> change_tempo(
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
-  Interleaved<float> out(static_cast<int>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
+  Interleaved<float> out(static_cast<uint32_t>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
 
   SRC_DATA data{};
   data.data_in = in.data();
@@ -367,7 +368,11 @@ Interleaved<float> load_track(std::filesystem::path file)
   }
 
   const sf_count_t frames = sf.frames();
-  Interleaved<float> track(sf.samplerate(), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
+  const int sr = sf.samplerate();
+  if (sr <= 0) {
+    throw std::runtime_error("Invalid sample rate in file: " + file.string());
+  }
+  Interleaved<float> track(static_cast<uint32_t>(sr), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
 
   const sf_count_t read_frames = sf.readf(track.data(), frames);
   if (read_frames < 0) {
@@ -382,7 +387,7 @@ Interleaved<float> load_track(std::filesystem::path file)
 
 float detect_bpm(const Interleaved<float>& track)
 {
-  if (track.sample_rate <= 0 || track.channels() == 0 || track.frames() == 0) {
+  if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
   }
 
@@ -462,7 +467,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
   g_mix_bpm = bpm;
   g_mix_bpb = tis.front().beats_per_bar;
 
-  const int outRate = (int)g_device_rate;
+  const uint32_t outRate = g_device_rate;
   const int outCh = (int)g_device_channels;
   const double fpb = (double)outRate * 60.0 / bpm;
 
@@ -1275,7 +1280,7 @@ int main(int argc, char** argv)
                        SFM_WRITE,
                        SF_FORMAT_WAV | SF_FORMAT_PCM_24,
                        (int)mixTrack->channels(),
-                       mixTrack->sample_rate);
+                       static_cast<int>(mixTrack->sample_rate));
       if (sf.error()) {
         std::cerr << "Failed to open output file: " << outPath << "\n";
         return;
