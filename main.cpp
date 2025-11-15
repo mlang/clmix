@@ -61,34 +61,36 @@ static inline T ampdb(T amp)
   return T(20.0) * std::log10(amp);
 }
 
-struct Track {
+template<typename T>
+struct Interleaved {
   int sample_rate = 0;
-  int channels = 0;
-  std::vector<float> storage;
-  multichannel<float> audio{}; // non-owning view over 'storage'
+  std::vector<T> storage;
+  multichannel<T> audio{}; // non-owning view over 'storage'
 
-  Track() = default;
+  Interleaved() = default;
 
-  Track(int sr, int ch, std::size_t frames)
+  Interleaved(int sr, std::size_t ch, std::size_t frames)
   : sample_rate(sr),
-    channels(ch),
-    storage(frames * static_cast<std::size_t>(ch)),
-    audio(storage.data(), frames, static_cast<std::size_t>(ch)) {}
-
-  // move-only
-  Track(const Track&) = delete;
-  Track& operator=(const Track&) = delete;
-
-  Track(Track&&) noexcept = default;
-  Track& operator=(Track&&) noexcept = default;
-
-  std::size_t frames() const {
-    return channels > 0 ? storage.size() / static_cast<std::size_t>(channels) : 0;
+    storage(frames * ch),
+    audio(storage.data(), frames, ch)
+  {
+    if (ch == 0) throw std::invalid_argument("channels must be > 0");
   }
 
+  // move-only
+  Interleaved(const Interleaved&) = delete;
+  Interleaved& operator=(const Interleaved&) = delete;
+
+  Interleaved(Interleaved&&) noexcept = default;
+  Interleaved& operator=(Interleaved&&) noexcept = default;
+
+  std::size_t frames() const { return audio.extent(0); }
+  std::size_t channels() const { return audio.extent(1); }
+
   void resize(std::size_t new_frames) {
-    storage.resize(new_frames * static_cast<std::size_t>(channels));
-    audio = multichannel<float>(storage.data(), new_frames, static_cast<std::size_t>(channels));
+    const std::size_t ch = channels();
+    storage.resize(new_frames * ch);
+    audio = multichannel<T>(storage.data(), new_frames, ch);
   }
 };
 
@@ -330,7 +332,7 @@ struct TrackDB {
 
 struct PlayerState {
   std::atomic<bool> playing{false};
-  std::shared_ptr<Track> track; // set before play; not swapped while playing
+  std::shared_ptr<Interleaved<float>> track; // set before play; not swapped while playing
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
 
   // Seek control (source frames)
@@ -354,7 +356,7 @@ static std::vector<double> g_mix_cue_frames; // absolute cue frames in mix timel
 static unsigned g_mix_bpb = 4;
 static double g_mix_bpm = 120.0;
 
-Track load_track(std::filesystem::path file)
+Interleaved<float> load_track(std::filesystem::path file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
@@ -362,7 +364,7 @@ Track load_track(std::filesystem::path file)
   }
 
   const sf_count_t frames = sf.frames();
-  Track track(sf.samplerate(), sf.channels(), static_cast<std::size_t>(frames));
+  Interleaved<float> track(sf.samplerate(), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
 
   const sf_count_t read_frames = sf.readf(track.storage.data(), frames);
   if (read_frames < 0) {
@@ -375,9 +377,9 @@ Track load_track(std::filesystem::path file)
   return track;
 }
 
-float detect_bpm(const Track& track)
+float detect_bpm(const Interleaved<float>& track)
 {
-  if (track.sample_rate <= 0 || track.channels <= 0 || track.frames() == 0) {
+  if (track.sample_rate <= 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
   }
 
@@ -399,7 +401,7 @@ float detect_bpm(const Track& track)
     throw std::runtime_error("aubio: failed to allocate buffers");
   }
 
-  const std::size_t channels = static_cast<std::size_t>(track.channels);
+  const std::size_t channels = track.channels();
   const std::size_t total_frames = track.frames();
 
   for (std::size_t frame = 0; frame < total_frames; frame += hop_s) {
@@ -430,7 +432,7 @@ float detect_bpm(const Track& track)
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-static std::shared_ptr<Track> build_mix_track(
+static std::shared_ptr<Interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
   std::optional<double> force_bpm = std::nullopt,
   int converter_type = SRC_LINEAR
@@ -464,7 +466,7 @@ static std::shared_ptr<Track> build_mix_track(
   struct Item {
     std::filesystem::path file;
     TrackInfo ti;
-    int inCh;
+    size_t inCh;
     std::vector<float> res;
     multichannel<float> view;
     size_t frames;
@@ -477,16 +479,16 @@ static std::shared_ptr<Track> build_mix_track(
 
   // Resample/time-stretch each track and compute its local cue frames
   for (size_t i = 0; i < files.size(); ++i) {
-    Track t = load_track(files[i]);
+    Interleaved<float> t = load_track(files[i]);
     const auto& ti = tis[i];
 
     std::vector<float> res = change_tempo(
-      t.storage, (size_t)t.channels,
+      t.storage, t.channels(),
       (float)std::max(1e-6, ti.bpm), (size_t)t.sample_rate,
       (float)bpm, (size_t)outRate,
       converter_type
     );
-    size_t frames = res.size() / (size_t)t.channels;
+    size_t frames = res.size() / t.channels();
 
     int firstBar = ti.cue_bars.front();
     int lastBar  = ti.cue_bars.back();
@@ -500,8 +502,8 @@ static std::shared_ptr<Track> build_mix_track(
       lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
     }
 
-    items.push_back(Item{ files[i], ti, t.channels, std::move(res), multichannel<float>{}, frames, firstCue, lastCue, 0.0 });
-    items.back().view = multichannel<float>(items.back().res.data(), frames, static_cast<std::size_t>(t.channels));
+    items.push_back(Item{ files[i], ti, t.channels(), std::move(res), multichannel<float>{}, frames, firstCue, lastCue, 0.0 });
+    items.back().view = multichannel<float>(items.back().res.data(), frames, t.channels());
   }
 
   // Offsets: align last cue of A with first cue of B
@@ -521,7 +523,7 @@ static std::shared_ptr<Track> build_mix_track(
     totalFrames = std::max(totalFrames, (size_t)std::ceil(it.offset) + it.frames);
   }
 
-  auto out = std::make_shared<Track>(outRate, outCh, totalFrames);
+  auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
   std::fill(out->storage.begin(), out->storage.end(), 0.0f);
 
   // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
@@ -547,7 +549,7 @@ static std::shared_ptr<Track> build_mix_track(
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
-    const size_t inChS = (size_t)it.inCh;
+    const size_t inChS = it.inCh;
     for (size_t f = 0; f < it.frames; ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
@@ -592,7 +594,7 @@ static void play(
     auto &track = *player.track;
     const auto bpm = std::max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
-    const size_t srcCh = static_cast<size_t>(track.channels);
+    const size_t srcCh = track.channels();
     const size_t totalSrcFrames = track.frames();
     if (totalSrcFrames == 0) return;
 
@@ -785,14 +787,14 @@ class REPL {
 
 static void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
 {
-  Track t;
+  Interleaved<float> t;
   try {
     t = load_track(f);
   } catch (const std::exception& e) {
     std::cerr << "Error: " << e.what() << "\n";
     return;
   }
-  auto tr = std::make_shared<Track>(std::move(t));
+  auto tr = std::make_shared<Interleaved<float>>(std::move(t));
 
   double guessedBpm = 0.0;
 
@@ -1271,7 +1273,7 @@ int main(int argc, char** argv)
       SndfileHandle sf(outPath.string(),
                        SFM_WRITE,
                        SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                       mixTrack->channels,
+                       (int)mixTrack->channels(),
                        mixTrack->sample_rate);
       if (sf.error()) {
         std::cerr << "Failed to open output file: " << outPath << "\n";
@@ -1285,7 +1287,7 @@ int main(int argc, char** argv)
       } else {
         std::cout << "Exported " << frames
                   << " frames (" << mixTrack->sample_rate << " Hz, "
-                  << mixTrack->channels << " ch) to " << outPath << "\n";
+                  << mixTrack->channels() << " ch) to " << outPath << "\n";
       }
     } catch (const std::exception& e) {
       std::cerr << "Export failed: " << e.what() << "\n";
