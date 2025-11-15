@@ -103,7 +103,7 @@ public:
 template<typename T>
 static Interleaved<T> change_tempo(
   const Interleaved<T>& in,
-  float from_bpm, float to_bpm,
+  double from_bpm, double to_bpm,
   std::size_t to_rate,
   int converter_type
 ) {
@@ -114,7 +114,7 @@ static Interleaved<T> change_tempo(
   if (channels == 0 || in_frames_sz == 0)
     return Interleaved<T>{};
 
-  if (from_bpm <= 0.0f || to_bpm <= 0.0f || in.sample_rate <= 0 || to_rate == 0)
+  if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate <= 0 || to_rate == 0)
     throw std::invalid_argument("BPM and sample rates must be positive.");
 
   if (in_frames_sz > static_cast<std::size_t>(std::numeric_limits<long>::max()))
@@ -127,7 +127,7 @@ static Interleaved<T> change_tempo(
   // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
   const double ratio =
       (static_cast<double>(to_rate) / static_cast<double>(in.sample_rate)) *
-      (static_cast<double>(from_bpm) / static_cast<double>(to_bpm));
+      (from_bpm / to_bpm);
 
   if (!(ratio > 0.0) || !std::isfinite(ratio))
     throw std::invalid_argument("Invalid resampling ratio derived from inputs.");
@@ -487,8 +487,8 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
 
     Interleaved<float> res = change_tempo(
       t,
-      (float)std::max(1e-6, ti.bpm),
-      (float)bpm,
+      std::max(1e-6, ti.bpm),
+      bpm,
       (std::size_t)outRate,
       converter_type
     );
