@@ -65,8 +65,10 @@ static inline T ampdb(T amp)
 template<typename T>
 struct Interleaved {
   int sample_rate = 0;
+private:
   std::vector<T> storage;
-  multichannel<T> audio{}; // non-owning view over 'storage'
+public:
+  multichannel<T> audio{}; // non-ownning view over 'storage'
 
   Interleaved() = default;
 
@@ -87,6 +89,9 @@ struct Interleaved {
 
   std::size_t frames() const { return audio.extent(0); }
   std::size_t channels() const { return audio.extent(1); }
+  std::size_t samples() const noexcept { return frames() * channels(); }
+  T* data() noexcept { return storage.data(); }
+  const T* data() const noexcept { return storage.data(); }
 
   void resize(std::size_t new_frames) {
     const std::size_t ch = channels();
@@ -137,8 +142,8 @@ static Interleaved<T> change_tempo(
   Interleaved<T> out(static_cast<int>(to_rate), channels, static_cast<std::size_t>(out_frames_est));
 
   SRC_DATA data{};
-  data.data_in = in.storage.data();
-  data.data_out = out.storage.data();
+  data.data_in = in.data();
+  data.data_out = out.data();
   data.input_frames = in_frames;
   data.output_frames = out_frames_est;
   data.end_of_input = 1;
@@ -367,7 +372,7 @@ Interleaved<float> load_track(std::filesystem::path file)
   const sf_count_t frames = sf.frames();
   Interleaved<float> track(sf.samplerate(), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
 
-  const sf_count_t read_frames = sf.readf(track.storage.data(), frames);
+  const sf_count_t read_frames = sf.readf(track.data(), frames);
   if (read_frames < 0) {
     throw std::runtime_error("Failed to read audio data from file: " + file.string());
   }
@@ -522,7 +527,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
   }
 
   auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
-  std::fill(out->storage.begin(), out->storage.end(), 0.0f);
+  std::fill_n(out->data(), out->samples(), 0.0f);
 
   // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
   auto env = [](size_t f, size_t frames, double firstCue, double lastCue)->float {
@@ -1251,8 +1256,8 @@ int main(int argc, char** argv)
 
       // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
       double peak = 0.0;
-      for (float s : mixTrack->storage) {
-        double a = std::abs((double)s);
+      for (std::size_t i = 0; i < mixTrack->samples(); ++i) {
+        double a = std::abs((double)mixTrack->data()[i]);
         if (std::isfinite(a) && a > peak) peak = a;
       }
       // -0.1 dBFS target peak to leave a tiny safety margin
@@ -1261,7 +1266,9 @@ int main(int argc, char** argv)
       if (peak > 0.0 && std::isfinite(peak)) {
         double gain = target / peak;
         if (gain > 1.0) {
-          for (auto& s : mixTrack->storage) s = (float)(s * gain);
+          for (std::size_t i = 0; i < mixTrack->samples(); ++i) {
+            mixTrack->data()[i] = (float)(mixTrack->data()[i] * gain);
+          }
           std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
       }
@@ -1278,7 +1285,7 @@ int main(int argc, char** argv)
       }
 
       // Write frames; libsndfile converts float -> PCM_24 and clips if needed
-      const sf_count_t written = sf.writef(mixTrack->storage.data(), frames);
+      const sf_count_t written = sf.writef(mixTrack->data(), frames);
       if (written != frames) {
         std::cerr << "Short write: wrote " << written << " of " << frames << " frames.\n";
       } else {
