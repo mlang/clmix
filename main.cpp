@@ -32,7 +32,6 @@
 #include <optional>
 #include <random>
 #include <type_traits>
-#include <scope>
 
 #include "vendor/mdspan.hpp"
 
@@ -1074,11 +1073,10 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  auto dev_guard = std::scope_exit([&]{ ma_device_uninit(&device); });
-
   res = ma_device_start(&device);
   if (res != MA_SUCCESS) {
     std::cerr << "Audio device start failed: " << ma_result_description(res) << "\n";
+    ma_device_uninit(&device);
     return 1;
   }
 
@@ -1319,6 +1317,8 @@ int main(int argc, char** argv)
   });
 
   repl.run("clmix> ");
+
+  ma_device_uninit(&device);
 
   return 0;
 }
