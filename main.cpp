@@ -76,12 +76,8 @@ public:
   Interleaved() = default;
 
   Interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
-  : sample_rate(sr),
-    storage(frames * ch),
-    audio(storage.data(), frames, ch)
-  {
-    assert(ch > 0);
-  }
+  : sample_rate(sr), storage(frames * ch), audio(storage.data(), frames, ch)
+  { assert(ch > 0); }
 
   // move-only
   Interleaved(const Interleaved&) = delete;
