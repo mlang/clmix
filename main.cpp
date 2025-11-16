@@ -16,6 +16,9 @@
 #include <functional>
 #include <iomanip>
 #include <limits>
+#include <charconv>
+#include <expected>
+#include <string_view>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -64,6 +67,39 @@ requires std::is_floating_point_v<T>
 static constexpr T ampdb(T amp) noexcept
 {
   return T(20.0) * std::log10(amp);
+}
+
+// from_chars helpers with messages
+template<typename Int>
+requires std::is_integral_v<Int>
+static std::expected<Int, std::string> parse_int_ex(std::string_view s) {
+  Int v{};
+  const char* b = s.data();
+  const char* e = b + s.size();
+  auto [p, ec] = std::from_chars(b, e, v);
+  if (ec == std::errc()) {
+    if (p != e) return std::unexpected(std::string("trailing characters"));
+    return v;
+  }
+  if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
+  if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
+  return std::unexpected(std::string("parse error"));
+}
+
+template<typename FP>
+requires std::is_floating_point_v<FP>
+static std::expected<FP, std::string> parse_float_ex(std::string_view s) {
+  FP v{};
+  const char* b = s.data();
+  const char* e = b + s.size();
+  auto [p, ec] = std::from_chars(b, e, v, std::chars_format::general);
+  if (ec == std::errc()) {
+    if (p != e) return std::unexpected(std::string("trailing characters"));
+    return v;
+  }
+  if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
+  if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
+  return std::unexpected(std::string("parse error"));
 }
 
 template<typename T>
@@ -282,12 +318,7 @@ struct TrackDB {
       }
       double bpm = 120.0;
       if (iss >> bpm_tok) {
-        try {
-          double v = std::stod(bpm_tok);
-          if (v > 0.0) bpm = v;
-        } catch (...) {
-          bpm = 120.0;
-        }
+        if (auto v = parse_float_ex<double>(bpm_tok); v && *v > 0.0) bpm = *v;
       }
       std::vector<int> cues;
       std::string cues_tok;
@@ -296,11 +327,8 @@ struct TrackDB {
           std::stringstream ss(cues_tok);
           std::string tok;
           while (std::getline(ss, tok, ',')) {
-            try {
-              int bar = std::stoi(tok);
-              if (bar > 0) cues.push_back(bar);
-            } catch (...) {
-              // ignore invalid tokens
+            if (auto bar = parse_int_ex<int>(tok); bar && *bar > 0) {
+              cues.push_back(*bar);
             }
           }
           std::sort(cues.begin(), cues.end());
@@ -802,20 +830,20 @@ static void register_volume_command(REPL& repl, std::string label) {
         std::println(std::cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
         return;
       }
-      try {
-        std::string s = a[0];
-        if (s.size() >= 2) {
-          std::string tail = s.substr(s.size() - 2);
-          std::transform(tail.begin(), tail.end(), tail.begin(),
-                         [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-          if (tail == "db") s.resize(s.size() - 2);
-        }
-        const auto db = std::clamp(std::stof(s), -60.f, 12.f);
+      std::string s = a[0];
+      if (s.size() >= 2) {
+        std::string tail = s.substr(s.size() - 2);
+        std::transform(tail.begin(), tail.end(), tail.begin(),
+                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (tail == "db") s.resize(s.size() - 2);
+      }
+      if (auto v = parse_float_ex<float>(s)) {
+        const float db = std::clamp(*v, -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
         std::println(std::cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
-      } catch (...) {
-        std::cerr << "Invalid dB value.\n";
+      } else {
+        std::cerr << "Invalid dB value: " << v.error() << "\n";
       }
     }
   );
@@ -888,15 +916,14 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::println(std::cout, "BPM: {:.2f}", g_player.metro.bpm.load());
       return;
     }
-    try {
-      double v = std::stod(a[0]);
-      if (v <= 0) throw std::runtime_error("BPM must be > 0");
-      g_player.metro.bpm.store(v);
-      ti.bpm = v;
+    if (auto v = parse_float_ex<double>(a[0]); v) {
+      if (*v <= 0.0) { std::cerr << "Invalid BPM: must be > 0\n"; return; }
+      g_player.metro.bpm.store(*v);
+      ti.bpm = *v;
       dirty = true;
       print_estimated_bars();
-    } catch (...) {
-      std::cerr << "Invalid BPM.\n";
+    } else {
+      std::cerr << "Invalid BPM: " << v.error() << "\n";
     }
   });
 
@@ -905,15 +932,14 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cout << "Beats/bar: " << g_player.metro.bpb.load() << "\n";
       return;
     }
-    try {
-      unsigned v = std::stoul(a[0]);
-      if (v == 0) throw std::runtime_error("bpb must be > 0");
-      g_player.metro.bpb.store(v);
-      ti.beats_per_bar = v;
+    if (auto v = parse_int_ex<unsigned>(a[0]); v) {
+      if (*v == 0u) { std::cerr << "Invalid beats-per-bar: must be > 0\n"; return; }
+      g_player.metro.bpb.store(*v);
+      ti.beats_per_bar = *v;
       dirty = true;
       print_estimated_bars();
-    } catch (...) {
-      std::cerr << "Invalid beats-per-bar.\n";
+    } else {
+      std::cerr << "Invalid beats-per-bar: " << v.error() << "\n";
     }
   });
 
@@ -922,11 +948,10 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: cue <bar>\n";
       return;
     }
-    try {
-      int bar = std::stoi(a[0]);
-      if (bar <= 0) throw std::runtime_error("bar must be > 0");
-      if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), bar) == ti.cue_bars.end()) {
-        ti.cue_bars.push_back(bar);
+    if (auto bar = parse_int_ex<int>(a[0]); bar) {
+      if (*bar <= 0) { std::cerr << "Invalid bar: must be > 0\n"; return; }
+      if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
+        ti.cue_bars.push_back(*bar);
         std::sort(ti.cue_bars.begin(), ti.cue_bars.end());
         dirty = true;
       }
@@ -940,8 +965,8 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
         }
         std::cout << "\n";
       }
-    } catch (...) {
-      std::cerr << "Invalid bar.\n";
+    } else {
+      std::cerr << "Invalid bar: " << bar.error() << "\n";
     }
   });
 
@@ -950,13 +975,12 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: uncue <bar>\n";
       return;
     }
-    try {
-      int bar = std::stoi(a[0]);
-      if (std::erase(ti.cue_bars, bar) > 0) {
+    if (auto bar = parse_int_ex<int>(a[0]); bar) {
+      if (std::erase(ti.cue_bars, *bar) > 0) {
         dirty = true;
       }
-    } catch (...) {
-      std::cerr << "Invalid bar.\n";
+    } else {
+      std::cerr << "Invalid bar: " << bar.error() << "\n";
     }
   });
 
@@ -1002,9 +1026,8 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: seek <bar>\n";
       return;
     }
-    try {
-      int bar1 = std::stoi(a[0]);
-      int bar0 = std::max(0, bar1 - 1);
+    if (auto bar1 = parse_int_ex<int>(a[0]); bar1) {
+      int bar0 = std::max(0, *bar1 - 1);
       auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
       unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
@@ -1021,8 +1044,8 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
         g_player.seekTargetFrames.store(target);
         g_player.seekPending.store(true);
       }
-    } catch (...) {
-      std::cerr << "Invalid bar number.\n";
+    } else {
+      std::cerr << "Invalid bar number: " << bar1.error() << "\n";
     }
   });
 
@@ -1134,19 +1157,18 @@ int main(int argc, char** argv)
       std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
       return;
     }
-    try {
-      double v = std::stod(a[0]);
-      if (v <= 0) throw std::runtime_error("BPM must be > 0");
+    if (auto v = parse_float_ex<double>(a[0]); v) {
+      if (*v <= 0.0) { std::cerr << "Invalid BPM: must be > 0\n"; return; }
       g_player.playing.store(false);
-      auto mixTrack = build_mix_track(g_mix_tracks, v);
+      auto mixTrack = build_mix_track(g_mix_tracks, *v);
       g_player.track = mixTrack;
       g_player.srcPos = 0.0;
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
       std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
-    } catch (...) {
-      std::cerr << "Invalid BPM.\n";
+    } else {
+      std::cerr << "Invalid BPM: " << v.error() << "\n";
     }
   });
 
@@ -1173,9 +1195,8 @@ int main(int argc, char** argv)
 
   repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](const std::vector<std::string>& a){
     if (a.size() != 1 || !g_player.track) { std::cerr << "Usage: seek <bar>\n"; return; }
-    try {
-      int bar1 = std::stoi(a[0]);
-      int bar0 = std::max(0, bar1 - 1);
+    if (auto bar1 = parse_int_ex<int>(a[0]); bar1) {
+      int bar0 = std::max(0, *bar1 - 1);
       double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
       double target = (double)bar0 * (double)g_mix_bpb * framesPerBeat;
       size_t totalFrames = g_player.track->frames();
@@ -1190,8 +1211,8 @@ int main(int argc, char** argv)
         g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
         g_player.seekPending.store(true, std::memory_order_release);
       }
-    } catch (...) {
-      std::cerr << "Invalid bar number.\n";
+    } else {
+      std::cerr << "Invalid bar number: " << bar1.error() << "\n";
     }
   });
 
