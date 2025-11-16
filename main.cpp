@@ -856,7 +856,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   }
   auto tr = std::make_shared<Interleaved<float>>(std::move(t));
 
-  double guessedBpm = 0.0;
+  std::optional<double> guessedBpm;
 
   TrackInfo ti;
   if (auto* existing = g_db.find(f)) {
@@ -866,9 +866,10 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
     ti.beats_per_bar = 4;
     ti.bpm = 120.f;
     try {
-      guessedBpm = detect_bpm(*tr);
-      if (guessedBpm > 0.f) {
-        ti.bpm = guessedBpm;
+      const double bpmGuess = static_cast<double>(detect_bpm(*tr));
+      if (bpmGuess > 0.0) {
+        ti.bpm = bpmGuess;
+        guessedBpm = bpmGuess;
       }
     } catch (const std::exception& e) {
       std::cerr << "BPM detection failed: " << e.what() << "\n";
@@ -876,7 +877,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   }
 
   std::cout << "Opened " << f << "\n";
-  if (guessedBpm > 0) std::println(std::cout, "Guessed BPM: {:.2f}", guessedBpm);
+  if (guessedBpm) std::println(std::cout, "Guessed BPM: {:.2f}", *guessedBpm);
   std::println(std::cout, "BPM: {:.2f}", ti.bpm);
   std::cout << "Beats/bar: " << ti.beats_per_bar << "\n";
 
