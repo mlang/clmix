@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -79,7 +80,7 @@ public:
     storage(frames * ch),
     audio(storage.data(), frames, ch)
   {
-    if (ch == 0) throw std::invalid_argument("channels must be > 0");
+    assert(ch > 0);
   }
 
   // move-only
@@ -500,7 +501,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
 
     Interleaved<float> res = change_tempo(
       t,
-      std::max(1e-6, ti.bpm),
+      ti.bpm,
       bpm,
       outRate,
       converter_type
@@ -621,15 +622,15 @@ static void play(
 
     for (size_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
-      if (player.seekPending.load(std::memory_order_acquire)) {
+      if (player.seekPending.load()) {
         unsigned bpbNow = std::max(1u, player.metro.bpb.load());
         uint64_t beatNow  = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
         uint64_t beatNext = (uint64_t)std::floor(std::max(0.0, pos + incrSrcPerOut) / framesPerBeatSrc);
         bool crossesBeat = (beatNext != beatNow);
         bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
-          pos = player.seekTargetFrames.load(std::memory_order_relaxed);
-          player.seekPending.store(false, std::memory_order_release);
+          pos = player.seekTargetFrames.load();
+          player.seekPending.store(false);
           player.metro.prepare_after_seek(pos, framesPerBeatSrc);
         }
       }
@@ -1026,11 +1027,11 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
         g_player.metro.prepare_after_seek(target, framesPerBeat);
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(false, std::memory_order_relaxed);
+        g_player.seekTargetFrames.store(target);
+        g_player.seekPending.store(false);
       } else {
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(true, std::memory_order_release);
+        g_player.seekTargetFrames.store(target);
+        g_player.seekPending.store(true);
       }
     } catch (...) {
       std::cerr << "Invalid bar number.\n";
@@ -1123,7 +1124,6 @@ int main(int argc, char** argv)
     try {
       g_player.playing.store(false);
       auto mixTrack = build_mix_track(g_mix_tracks);
-      if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
       g_player.track = mixTrack;
       g_player.srcPos = 0.0;
       g_player.seekPending.store(false);
@@ -1151,7 +1151,6 @@ int main(int argc, char** argv)
       if (v <= 0) throw std::runtime_error("BPM must be > 0");
       g_player.playing.store(false);
       auto mixTrack = build_mix_track(g_mix_tracks, v);
-      if (!mixTrack) { std::cerr << "Mix empty.\n"; return; }
       g_player.track = mixTrack;
       g_player.srcPos = 0.0;
       g_player.metro.reset_runtime();
@@ -1168,7 +1167,6 @@ int main(int argc, char** argv)
       if (g_mix_tracks.empty()) { std::cerr << "No tracks in mix.\n"; return; }
       try {
         g_player.track = build_mix_track(g_mix_tracks);
-        if (!g_player.track) { std::cerr << "Mix empty.\n"; return; }
         g_player.srcPos = 0.0;
         g_player.metro.reset_runtime();
         g_player.metro.bpm.store(g_mix_bpm);
@@ -1244,7 +1242,6 @@ int main(int argc, char** argv)
     try {
       g_player.playing.store(false);
       auto mixTrack = build_mix_track(g_mix_tracks);
-      if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
       g_player.track = mixTrack;
       g_player.srcPos = 0.0;
       g_player.seekPending.store(false);
@@ -1272,7 +1269,6 @@ int main(int argc, char** argv)
 
       // Rebuild a fresh mix with current BPM and tracks
       auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
-      if (!mixTrack) { std::cerr << "Mix is empty.\n"; return; }
 
       const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
 
@@ -1288,7 +1284,7 @@ int main(int argc, char** argv)
       if (peak > 0.0 && std::isfinite(peak)) {
         double gain = target / peak;
         if (gain > 1.0) {
-          (*mixTrack) *= static_cast<float>(gain);
+          (*mixTrack) *= gain;
           std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
       }
