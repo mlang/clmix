@@ -69,37 +69,34 @@ static constexpr T ampdb(T amp) noexcept
   return T(20.0) * std::log10(amp);
 }
 
-// from_chars helpers with messages
-template<typename Int>
-requires std::is_integral_v<Int>
-static std::expected<Int, std::string> parse_int_ex(std::string_view s) {
-  Int v{};
+ // from_chars helper with messages
+template<typename T>
+requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
+static std::expected<T, std::string> parse_number(std::string_view s) {
+  static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
+  T v{};
   const char* b = s.data();
   const char* e = b + s.size();
-  auto [p, ec] = std::from_chars(b, e, v);
-  if (ec == std::errc()) {
-    if (p != e) return std::unexpected(std::string("trailing characters"));
-    return v;
-  }
-  if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
-  if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
-  return std::unexpected(std::string("parse error"));
-}
 
-template<typename FP>
-requires std::is_floating_point_v<FP>
-static std::expected<FP, std::string> parse_float_ex(std::string_view s) {
-  FP v{};
-  const char* b = s.data();
-  const char* e = b + s.size();
-  auto [p, ec] = std::from_chars(b, e, v, std::chars_format::general);
-  if (ec == std::errc()) {
-    if (p != e) return std::unexpected(std::string("trailing characters"));
-    return v;
+  if constexpr (std::is_floating_point_v<T>) {
+    auto [p, ec] = std::from_chars(b, e, v, std::chars_format::general);
+    if (ec == std::errc()) {
+      if (p != e) return std::unexpected(std::string("trailing characters"));
+      return v;
+    }
+    if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
+    if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
+    return std::unexpected(std::string("parse error"));
+  } else {
+    auto [p, ec] = std::from_chars(b, e, v);
+    if (ec == std::errc()) {
+      if (p != e) return std::unexpected(std::string("trailing characters"));
+      return v;
+    }
+    if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
+    if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
+    return std::unexpected(std::string("parse error"));
   }
-  if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
-  if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
-  return std::unexpected(std::string("parse error"));
 }
 
 template<typename T>
@@ -318,7 +315,7 @@ struct TrackDB {
       }
       double bpm = 120.0;
       if (iss >> bpm_tok) {
-        if (auto v = parse_float_ex<double>(bpm_tok); v && *v > 0.0) bpm = *v;
+        if (auto v = parse_number<double>(bpm_tok); v && *v > 0.0) bpm = *v;
       }
       std::vector<int> cues;
       std::string cues_tok;
@@ -327,7 +324,7 @@ struct TrackDB {
           std::stringstream ss(cues_tok);
           std::string tok;
           while (std::getline(ss, tok, ',')) {
-            if (auto bar = parse_int_ex<int>(tok); bar && *bar > 0) {
+            if (auto bar = parse_number<int>(tok); bar && *bar > 0) {
               cues.push_back(*bar);
             }
           }
@@ -837,7 +834,7 @@ static void register_volume_command(REPL& repl, std::string label) {
                        [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
         if (tail == "db") s.resize(s.size() - 2);
       }
-      if (auto v = parse_float_ex<float>(s)) {
+      if (auto v = parse_number<float>(s)) {
         const float db = std::clamp(*v, -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
@@ -916,7 +913,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::println(std::cout, "BPM: {:.2f}", g_player.metro.bpm.load());
       return;
     }
-    if (auto v = parse_float_ex<double>(a[0]); v) {
+    if (auto v = parse_number<double>(a[0]); v) {
       if (*v <= 0.0) { std::cerr << "Invalid BPM: must be > 0\n"; return; }
       g_player.metro.bpm.store(*v);
       ti.bpm = *v;
@@ -932,7 +929,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cout << "Beats/bar: " << g_player.metro.bpb.load() << "\n";
       return;
     }
-    if (auto v = parse_int_ex<unsigned>(a[0]); v) {
+    if (auto v = parse_number<unsigned>(a[0]); v) {
       if (*v == 0u) { std::cerr << "Invalid beats-per-bar: must be > 0\n"; return; }
       g_player.metro.bpb.store(*v);
       ti.beats_per_bar = *v;
@@ -948,7 +945,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: cue <bar>\n";
       return;
     }
-    if (auto bar = parse_int_ex<int>(a[0]); bar) {
+    if (auto bar = parse_number<int>(a[0]); bar) {
       if (*bar <= 0) { std::cerr << "Invalid bar: must be > 0\n"; return; }
       if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
         ti.cue_bars.push_back(*bar);
@@ -975,7 +972,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: uncue <bar>\n";
       return;
     }
-    if (auto bar = parse_int_ex<int>(a[0]); bar) {
+    if (auto bar = parse_number<int>(a[0]); bar) {
       if (std::erase(ti.cue_bars, *bar) > 0) {
         dirty = true;
       }
@@ -1026,7 +1023,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
       std::cerr << "Usage: seek <bar>\n";
       return;
     }
-    if (auto bar1 = parse_int_ex<int>(a[0]); bar1) {
+    if (auto bar1 = parse_number<int>(a[0]); bar1) {
       int bar0 = std::max(0, *bar1 - 1);
       auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
       unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
@@ -1157,7 +1154,7 @@ int main(int argc, char** argv)
       std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
       return;
     }
-    if (auto v = parse_float_ex<double>(a[0]); v) {
+    if (auto v = parse_number<double>(a[0]); v) {
       if (*v <= 0.0) { std::cerr << "Invalid BPM: must be > 0\n"; return; }
       g_player.playing.store(false);
       auto mixTrack = build_mix_track(g_mix_tracks, *v);
@@ -1195,7 +1192,7 @@ int main(int argc, char** argv)
 
   repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](const std::vector<std::string>& a){
     if (a.size() != 1 || !g_player.track) { std::cerr << "Usage: seek <bar>\n"; return; }
-    if (auto bar1 = parse_int_ex<int>(a[0]); bar1) {
+    if (auto bar1 = parse_number<int>(a[0]); bar1) {
       int bar0 = std::max(0, *bar1 - 1);
       double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
       double target = (double)bar0 * (double)g_mix_bpb * framesPerBeat;
