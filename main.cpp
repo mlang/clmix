@@ -52,13 +52,15 @@ extern "C" {
 constexpr float kHeadroomDB = -6.0f;
 
 template<typename T>
-static inline T dbamp(T db)
+requires std::is_floating_point_v<T>
+static constexpr T dbamp(T db) noexcept
 {
   return std::pow(T(10.0), db * T(0.05));
 }
 
 template<typename T>
-static inline T ampdb(T amp)
+requires std::is_floating_point_v<T>
+static constexpr T ampdb(T amp) noexcept
 {
   return T(20.0) * std::log10(amp);
 }
