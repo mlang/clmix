@@ -149,7 +149,7 @@ static Interleaved<float> change_tempo(
 
   if (channels > static_cast<std::size_t>(std::numeric_limits<int>::max()))
     throw std::invalid_argument("Channel count too large for libsamplerate.");
-  const int ch = static_cast<int>(channels);
+  const auto ch = static_cast<int>(channels);
 
   const int err = src_simple(&data, converter_type, ch);
   if (err != 0)
@@ -385,7 +385,7 @@ Interleaved<float> load_track(std::filesystem::path file)
   return track;
 }
 
-float detect_bpm(const Interleaved<float>& track)
+static float detect_bpm(const Interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
