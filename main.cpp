@@ -499,13 +499,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
     Interleaved<float> t = load_track(files[i]);
     const auto& ti = tis[i];
 
-    Interleaved<float> res = change_tempo(
-      t,
-      ti.bpm,
-      bpm,
-      outRate,
-      converter_type
-    );
+    auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
     size_t frames = res.frames();
 
     int firstBar = ti.cue_bars.front();
