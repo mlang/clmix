@@ -78,25 +78,26 @@ static std::expected<T, std::string> parse_number(std::string_view s) {
   const char* b = s.data();
   const char* e = b + s.size();
 
-  if constexpr (std::is_floating_point_v<T>) {
-    auto [p, ec] = std::from_chars(b, e, v, std::chars_format::general);
-    if (ec == std::errc()) {
-      if (p != e) return std::unexpected(std::string("trailing characters"));
-      return v;
-    }
-    if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
-    if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
-    return std::unexpected(std::string("parse error"));
-  } else {
-    auto [p, ec] = std::from_chars(b, e, v);
-    if (ec == std::errc()) {
-      if (p != e) return std::unexpected(std::string("trailing characters"));
-      return v;
-    }
-    if (ec == std::errc::invalid_argument) return std::unexpected(std::string("not a number"));
-    if (ec == std::errc::result_out_of_range) return std::unexpected(std::string("out of range"));
-    return std::unexpected(std::string("parse error"));
+  auto to_msg = [](std::errc ec) -> std::string {
+    if (ec == std::errc()) return {};
+    if (ec == std::errc::invalid_argument) return "not a number";
+    if (ec == std::errc::result_out_of_range) return "out of range";
+    return "parse error";
+  };
+
+  std::from_chars_result r = [&]{
+    if constexpr (std::is_floating_point_v<T>)
+      return std::from_chars(b, e, v, std::chars_format::general);
+    else
+      return std::from_chars(b, e, v);
+  }();
+
+  constexpr std::errc ok{};
+  if (r.ec == ok) {
+    if (r.ptr != e) return std::unexpected(std::string("trailing characters"));
+    return v;
   }
+  return std::unexpected(to_msg(r.ec));
 }
 
 template<typename T>
