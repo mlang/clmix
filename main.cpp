@@ -102,6 +102,17 @@ public:
   }
 };
 
+// Scale all samples in-place by gain.
+template<typename T>
+inline Interleaved<T>& operator*=(Interleaved<T>& audio, T gain) noexcept {
+  T* p = audio.data();
+  const std::size_t n = audio.samples();
+  for (std::size_t i = 0; i < n; ++i) {
+    p[i] *= gain;
+  }
+  return audio;
+}
+
 static Interleaved<float> change_tempo(
   const Interleaved<float>& in,
   double from_bpm, double to_bpm,
@@ -1279,9 +1290,7 @@ int main(int argc, char** argv)
       if (peak > 0.0 && std::isfinite(peak)) {
         double gain = target / peak;
         if (gain > 1.0) {
-          for (std::size_t i = 0; i < mixTrack->samples(); ++i) {
-            mixTrack->data()[i] = (float)(mixTrack->data()[i] * gain);
-          }
+          (*mixTrack) *= static_cast<float>(gain);
           std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
       }
