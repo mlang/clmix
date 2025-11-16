@@ -178,7 +178,7 @@ public:
 
   // Estimate output frames (add 1 for safety).
   const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
-  if (!std::in_range<long>(est_out_frames_d))
+  if (!std::in_range<long>(static_cast<std::size_t>(est_out_frames_d)))
     throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
