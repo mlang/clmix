@@ -274,6 +274,8 @@ struct TrackInfo {
   std::filesystem::path filename;
   unsigned beats_per_bar = 4;
   double bpm = 120.0; // required > 0
+  double upbeat_beats = 0.0;
+  double time_offset_sec = 0.0;
   std::vector<int> cue_bars; // 1-based bar numbers
 };
 
@@ -318,28 +320,55 @@ struct TrackDB {
         continue;
       }
       double bpm = 120.0;
+      double upbeat = 0.0;
+      double toffs = 0.0;
+
       if (iss >> bpm_tok) {
         if (auto v = parse_number<double>(bpm_tok); v && *v > 0.0) bpm = *v;
       }
-      std::vector<int> cues;
+
+      // Optional tokens: upbeat_beats, time_offset_sec, then cues
+      std::string tok1;
+      std::string tok2;
       std::string cues_tok;
-      if (iss >> cues_tok) {
-        if (cues_tok != "-") {
-          std::stringstream ss(cues_tok);
-          std::string tok;
-          while (std::getline(ss, tok, ',')) {
-            if (auto bar = parse_number<int>(tok); bar && *bar > 0) {
-              cues.push_back(*bar);
+
+      if (iss >> tok1) {
+        if (auto v = parse_number<double>(tok1)) {
+          upbeat = *v;
+          if (iss >> tok2) {
+            if (auto w = parse_number<double>(tok2)) {
+              toffs = *w;
+              // Next token (if any) is cues
+              iss >> cues_tok;
+            } else {
+              // tok2 is cues
+              cues_tok = tok2;
             }
           }
-          std::sort(cues.begin(), cues.end());
-          cues.erase(std::unique(cues.begin(), cues.end()), cues.end());
+        } else {
+          // tok1 is cues
+          cues_tok = tok1;
         }
+      }
+
+      std::vector<int> cues;
+      if (!cues_tok.empty() && cues_tok != "-") {
+        std::stringstream ss(cues_tok);
+        std::string tok;
+        while (std::getline(ss, tok, ',')) {
+          if (auto bar = parse_number<int>(tok); bar && *bar > 0) {
+            cues.push_back(*bar);
+          }
+        }
+        std::sort(cues.begin(), cues.end());
+        cues.erase(std::unique(cues.begin(), cues.end()), cues.end());
       }
       TrackInfo ti;
       ti.filename = fname;
       ti.beats_per_bar = beats > 0 ? static_cast<unsigned>(beats) : 4u;
       ti.bpm = bpm;
+      ti.upbeat_beats = upbeat;
+      ti.time_offset_sec = toffs;
       ti.cue_bars = std::move(cues);
       upsert(ti);
     }
@@ -365,6 +394,8 @@ struct TrackDB {
       out << std::quoted(ti.filename.generic_string()) << ' '
           << ti.beats_per_bar << ' '
           << std::to_string(ti.bpm) << ' '
+          << std::to_string(ti.upbeat_beats) << ' '
+          << std::to_string(ti.time_offset_sec) << ' '
           << cues_tok << '\n';
     }
     return true;
@@ -375,6 +406,8 @@ struct PlayerState {
   std::atomic<bool> playing{false};
   std::shared_ptr<Interleaved<float>> track; // set before play; not swapped while playing
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
+  std::atomic<double> upbeatBeats{0.0};
+  std::atomic<double> timeOffsetSec{0.0};
 
   // Seek control (source frames)
   std::atomic<bool> seekPending{false};
@@ -526,8 +559,9 @@ double g_mix_bpm = 120.0;
 
     int firstBar = ti.cue_bars.front();
     int lastBar  = ti.cue_bars.back();
-    double firstCue = (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
-    double lastCue  = (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
+    double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
+    double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
+    double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
 
     // Clamp
     if (frames == 0) { firstCue = lastCue = 0.0; }
@@ -602,7 +636,8 @@ double g_mix_bpm = 120.0;
   g_mix_cue_frames.clear();
   for (auto& it : items) {
     for (int bar : it.ti.cue_bars) {
-      double local = (double)(bar - 1) * (double)it.ti.beats_per_bar * fpb;
+      double shiftOut = it.ti.upbeat_beats * fpb + it.ti.time_offset_sec * (double)outRate;
+      double local = shiftOut + (double)(bar - 1) * (double)it.ti.beats_per_bar * fpb;
       g_mix_cue_frames.push_back(it.offset + local);
     }
   }
@@ -633,6 +668,8 @@ void play(
 
     const double framesPerBeatSrc = (double)track.sample_rate * 60.0 / (double)bpm;
     const double incrSrcPerOut = (double)track.sample_rate / (double)devRate;
+    const double shiftSrc = player.upbeatBeats.load() * framesPerBeatSrc
+                            + player.timeOffsetSec.load() * (double)track.sample_rate;
 
     double pos = player.srcPos;
 
@@ -640,14 +677,16 @@ void play(
       // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load()) {
         unsigned bpbNow = std::max(1u, player.metro.bpb.load());
-        uint64_t beatNow  = (uint64_t)std::floor(std::max(0.0, pos) / framesPerBeatSrc);
-        uint64_t beatNext = (uint64_t)std::floor(std::max(0.0, pos + incrSrcPerOut) / framesPerBeatSrc);
+        const double adjNow  = std::max(0.0, pos - shiftSrc);
+        const double adjNext = std::max(0.0, pos + incrSrcPerOut - shiftSrc);
+        uint64_t beatNow  = (uint64_t)std::floor(adjNow / framesPerBeatSrc);
+        uint64_t beatNext = (uint64_t)std::floor(adjNext / framesPerBeatSrc);
         bool crossesBeat = (beatNext != beatNow);
         bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
           pos = player.seekTargetFrames.load();
           player.seekPending.store(false);
-          player.metro.prepare_after_seek(pos, framesPerBeatSrc);
+          player.metro.prepare_after_seek(pos - shiftSrc, framesPerBeatSrc);
         }
       }
 
@@ -661,7 +700,7 @@ void play(
       double frac = pos - (double)i0;
       size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
 
-      float click = player.metro.process(pos, framesPerBeatSrc, devRate);
+      float click = player.metro.process(pos - shiftSrc, framesPerBeatSrc, devRate);
 
       // Write each output channel from the corresponding source channel (wrap if more outs)
       for (size_t ch = 0; ch < output.extent(1); ++ch) {
@@ -878,6 +917,8 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   if (guessedBpm > 0) std::println(std::cout, "Guessed BPM: {:.2f}", guessedBpm);
   std::println(std::cout, "BPM: {:.2f}", ti.bpm);
   std::cout << "Beats/bar: " << ti.beats_per_bar << "\n";
+  std::println(std::cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
+  std::println(std::cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
 
   // Initialize player state for this track (not playing yet)
   g_player.track = tr;
@@ -888,6 +929,8 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(ti.bpm);
   g_player.metro.bpb.store(std::max(1u, ti.beats_per_bar));
+  g_player.upbeatBeats.store(ti.upbeat_beats);
+  g_player.timeOffsetSec.store(ti.time_offset_sec);
 
   auto print_estimated_bars = [&](){
     auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
@@ -935,6 +978,36 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       print_estimated_bars();
     } else {
       std::cerr << "Invalid beats-per-bar: " << v.error() << "\n";
+    }
+  });
+
+  sub.register_command("upbeat", "upbeat [beats] - get/set upbeat in beats (can be negative)", [&](std::span<const std::string> a){
+    if (a.empty()) {
+      std::println(std::cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
+      return;
+    }
+    if (auto v = parse_number<double>(a[0]); v) {
+      ti.upbeat_beats = *v;
+      g_player.upbeatBeats.store(*v);
+      dirty = true;
+      print_estimated_bars();
+    } else {
+      std::cerr << "Invalid upbeat value: " << v.error() << "\n";
+    }
+  });
+
+  sub.register_command("offset", "offset [seconds] - get/set time offset in seconds (can be negative)", [&](std::span<const std::string> a){
+    if (a.empty()) {
+      std::println(std::cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+      return;
+    }
+    if (auto v = parse_number<double>(a[0]); v) {
+      ti.time_offset_sec = *v;
+      g_player.timeOffsetSec.store(*v);
+      dirty = true;
+      print_estimated_bars();
+    } else {
+      std::cerr << "Invalid time offset: " << v.error() << "\n";
     }
   });
 
@@ -1026,13 +1099,14 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
       unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
-      double target = (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
+      double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
+      double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
       size_t totalFrames = tr->frames();
       if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
-        g_player.metro.prepare_after_seek(target, framesPerBeat);
+        g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
         g_player.seekTargetFrames.store(target);
         g_player.seekPending.store(false);
       } else {
@@ -1140,6 +1214,15 @@ int main(int argc, char** argv)
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+      if (!g_mix_tracks.empty()) {
+        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+          g_player.upbeatBeats.store(ti0->upbeat_beats);
+          g_player.timeOffsetSec.store(ti0->time_offset_sec);
+        } else {
+          g_player.upbeatBeats.store(0.0);
+          g_player.timeOffsetSec.store(0.0);
+        }
+      }
       std::cout << "Added. Mix size: " << g_mix_tracks.size()
                 << ", BPM: " << g_mix_bpm
                 << ", BPB: " << g_mix_bpb << "\n";
@@ -1163,6 +1246,15 @@ int main(int argc, char** argv)
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+      if (!g_mix_tracks.empty()) {
+        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+          g_player.upbeatBeats.store(ti0->upbeat_beats);
+          g_player.timeOffsetSec.store(ti0->time_offset_sec);
+        } else {
+          g_player.upbeatBeats.store(0.0);
+          g_player.timeOffsetSec.store(0.0);
+        }
+      }
       std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
     } else {
       std::cerr << "Invalid BPM: " << v.error() << "\n";
@@ -1178,6 +1270,15 @@ int main(int argc, char** argv)
         g_player.metro.reset_runtime();
         g_player.metro.bpm.store(g_mix_bpm);
         g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+        if (!g_mix_tracks.empty()) {
+          if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+            g_player.upbeatBeats.store(ti0->upbeat_beats);
+            g_player.timeOffsetSec.store(ti0->time_offset_sec);
+          } else {
+            g_player.upbeatBeats.store(0.0);
+            g_player.timeOffsetSec.store(0.0);
+          }
+        }
       } catch (const std::exception& e) {
         std::cerr << "Build mix failed: " << e.what() << "\n"; return;
       }
@@ -1195,13 +1296,15 @@ int main(int argc, char** argv)
     if (auto bar1 = parse_number<int>(a[0]); bar1) {
       int bar0 = std::max(0, *bar1 - 1);
       double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
-      double target = (double)bar0 * (double)g_mix_bpb * framesPerBeat;
+      double shift = g_player.upbeatBeats.load() * framesPerBeat
+                     + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
+      double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
       size_t totalFrames = g_player.track->frames();
       if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
-        g_player.metro.prepare_after_seek(target, framesPerBeat);
+        g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
         g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
         g_player.seekPending.store(false, std::memory_order_relaxed);
       } else {
@@ -1216,8 +1319,9 @@ int main(int argc, char** argv)
   repl.register_command("cue", "List all cue points in current mix", [&](std::span<const std::string>){
     if (g_mix_cue_frames.empty()) { std::cout << "(no cues)\n"; return; }
     double fpb = (double)g_device_rate * 60.0 / g_mix_bpm;
+    double shift = g_player.upbeatBeats.load() * fpb + g_player.timeOffsetSec.load() * (double)g_device_rate;
     for (double f : g_mix_cue_frames) {
-      long mixBar = (long)(std::floor(f / (fpb * (double)g_mix_bpb)) + 1.0);
+      long mixBar = (long)(std::floor((f - shift) / (fpb * (double)g_mix_bpb)) + 1.0);
       std::cout << "bar " << mixBar << "\n";
     }
   });
@@ -1256,6 +1360,15 @@ int main(int argc, char** argv)
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+      if (!g_mix_tracks.empty()) {
+        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+          g_player.upbeatBeats.store(ti0->upbeat_beats);
+          g_player.timeOffsetSec.store(ti0->time_offset_sec);
+        } else {
+          g_player.upbeatBeats.store(0.0);
+          g_player.timeOffsetSec.store(0.0);
+        }
+      }
       std::cout << "Random mix created with " << g_mix_tracks.size()
                 << " tracks. BPM: " << g_mix_bpm
                 << ", BPB: " << g_mix_bpb << "\n";
