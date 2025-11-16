@@ -280,7 +280,7 @@ struct TrackInfo {
 };
 
  // Simple text DB:
- // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <cues_csv_or_->
+ // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <upbeat_beats> <space> <time_offset_sec> <space> <cues_csv_or_->
  // Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
   std::unordered_map<std::filesystem::path, TrackInfo> items;
@@ -311,64 +311,46 @@ struct TrackDB {
       auto it = std::find_if_not(line.begin(), line.end(),
                                  [](unsigned char ch){ return std::isspace(ch); });
       if (it == line.end() || *it == '#') continue; // blank or comment
+
       std::istringstream iss(line);
       std::string fname;
-      int beats = 4;
-      std::string bpm_tok;
-      if (!(iss >> std::ws >> std::quoted(fname) >> beats)) {
-        // Malformed line; skip
+      int beats = 0;
+      std::string bpm_tok, upbeat_tok, toffs_tok, cues_tok;
+
+      // Require all fields in order; skip malformed lines
+      if (!(iss >> std::ws >> std::quoted(fname) >> beats >> bpm_tok >> upbeat_tok >> toffs_tok >> cues_tok)) {
         continue;
       }
-      double bpm = 120.0;
-      double upbeat = 0.0;
-      double toffs = 0.0;
 
-      if (iss >> bpm_tok) {
-        if (auto v = parse_number<double>(bpm_tok); v && *v > 0.0) bpm = *v;
-      }
+      auto bpm_v    = parse_number<double>(bpm_tok);
+      auto upbeat_v = parse_number<double>(upbeat_tok);
+      auto toffs_v  = parse_number<double>(toffs_tok);
 
-      // Optional tokens: upbeat_beats, time_offset_sec, then cues
-      std::string tok1;
-      std::string tok2;
-      std::string cues_tok;
-
-      if (iss >> tok1) {
-        if (auto v = parse_number<double>(tok1)) {
-          upbeat = *v;
-          if (iss >> tok2) {
-            if (auto w = parse_number<double>(tok2)) {
-              toffs = *w;
-              // Next token (if any) is cues
-              iss >> cues_tok;
-            } else {
-              // tok2 is cues
-              cues_tok = tok2;
-            }
-          }
-        } else {
-          // tok1 is cues
-          cues_tok = tok1;
-        }
+      if (!bpm_v || *bpm_v <= 0.0 || beats <= 0 || !upbeat_v || !toffs_v) {
+        continue; // invalid required field(s)
       }
 
       std::vector<int> cues;
-      if (!cues_tok.empty() && cues_tok != "-") {
+      if (cues_tok != "-") {
         std::stringstream ss(cues_tok);
         std::string tok;
+        bool ok = true;
         while (std::getline(ss, tok, ',')) {
-          if (auto bar = parse_number<int>(tok); bar && *bar > 0) {
-            cues.push_back(*bar);
-          }
+          auto bar = parse_number<int>(tok);
+          if (!bar || *bar <= 0) { ok = false; break; }
+          cues.push_back(*bar);
         }
+        if (!ok) continue;
         std::sort(cues.begin(), cues.end());
         cues.erase(std::unique(cues.begin(), cues.end()), cues.end());
       }
+
       TrackInfo ti;
       ti.filename = fname;
-      ti.beats_per_bar = beats > 0 ? static_cast<unsigned>(beats) : 4u;
-      ti.bpm = bpm;
-      ti.upbeat_beats = upbeat;
-      ti.time_offset_sec = toffs;
+      ti.beats_per_bar = static_cast<unsigned>(beats);
+      ti.bpm = *bpm_v;
+      ti.upbeat_beats = *upbeat_v;
+      ti.time_offset_sec = *toffs_v;
       ti.cue_bars = std::move(cues);
       upsert(ti);
     }
@@ -380,7 +362,7 @@ struct TrackDB {
     if (!out.is_open()) {
       return false;
     }
-    out << "# clmix track db: \"filename\" beats_per_bar bpm cues_csv_or_-\n";
+    out << "# clmix track db: \"filename\" beats_per_bar bpm upbeat_beats time_offset_sec cues_csv_or_-\n";
     for (const auto& [key, ti] : items) {
       std::string cues_tok;
       if (!ti.cue_bars.empty()) {
