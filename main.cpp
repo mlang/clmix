@@ -55,26 +55,27 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+namespace {
+
 constexpr float kHeadroomDB = -6.0f;
 
 template<typename T>
 requires std::is_floating_point_v<T>
-[[nodiscard]] static constexpr T dbamp(T db) noexcept
+[[nodiscard]] constexpr T dbamp(T db) noexcept
 {
   return std::pow(T(10.0), db * T(0.05));
 }
 
 template<typename T>
 requires std::is_floating_point_v<T>
-[[nodiscard]] static constexpr T ampdb(T amp) noexcept
+[[nodiscard]] constexpr T ampdb(T amp) noexcept
 {
   return T(20.0) * std::log10(amp);
 }
 
- // from_chars helper with messages
 template<typename T>
 requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
-[[nodiscard]] static std::expected<T, std::string> parse_number(std::string_view s) {
+[[nodiscard]] std::expected<T, std::string> parse_number(std::string_view s) {
   static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
   T v{};
   const char* b = s.data();
@@ -143,7 +144,7 @@ public:
   }
 };
 
-[[nodiscard]] static Interleaved<float> change_tempo(
+[[nodiscard]] Interleaved<float> change_tempo(
   const Interleaved<float>& in,
   double from_bpm, double to_bpm,
   uint32_t to_rate,
@@ -384,16 +385,16 @@ struct PlayerState {
   Metronome metro;
 };
 
-static PlayerState g_player;
-static TrackDB g_db;
+PlayerState g_player;
+TrackDB g_db;
 
-static uint32_t g_device_rate = 44100;
-static uint32_t g_device_channels = 2;
+uint32_t g_device_rate = 44100;
+uint32_t g_device_channels = 2;
 
-static std::vector<std::filesystem::path> g_mix_tracks;
-static std::vector<double> g_mix_cue_frames; // absolute cue frames in mix timeline
-static unsigned g_mix_bpb = 4;
-static double g_mix_bpm = 120.0;
+std::vector<std::filesystem::path> g_mix_tracks;
+std::vector<double> g_mix_cue_frames; // absolute cue frames in mix timeline
+unsigned g_mix_bpb = 4;
+double g_mix_bpm = 120.0;
 
 [[nodiscard]] Interleaved<float> load_track(std::filesystem::path file)
 {
@@ -420,7 +421,7 @@ static double g_mix_bpm = 120.0;
   return track;
 }
 
-[[nodiscard]] static float detect_bpm(const Interleaved<float>& track)
+[[nodiscard]] float detect_bpm(const Interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
@@ -471,7 +472,7 @@ static double g_mix_bpm = 120.0;
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-[[nodiscard]] static std::shared_ptr<Interleaved<float>> build_mix_track(
+[[nodiscard]] std::shared_ptr<Interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
   std::optional<double> force_bpm = std::nullopt,
   int converter_type = SRC_LINEAR
@@ -614,7 +615,7 @@ static double g_mix_bpm = 120.0;
   return out;
 }
 
-static void play(
+void play(
   PlayerState &player, multichannel<float> output, uint32_t devRate
 )
 {
@@ -676,7 +677,7 @@ static void play(
   }
 }
 
-static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
+void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
   PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
 
@@ -692,7 +693,7 @@ static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_u
 // - Whitespace splits args when not inside quotes.
 // - Single quotes: literals (no escapes inside).
 // - Double quotes: supports backslash escaping of \" and \\ (simple treatment).
-[[nodiscard]] static std::vector<std::string> parse_command_line(const std::string& s) {
+[[nodiscard]] std::vector<std::string> parse_command_line(const std::string& s) {
   std::vector<std::string> out;
   std::string cur;
   bool in_single = false, in_double = false, escape = false;
@@ -810,7 +811,7 @@ class REPL {
     bool running_ = true;
 };
 
-static void register_volume_command(REPL& repl, std::string label) {
+void register_volume_command(REPL& repl, std::string label) {
   repl.register_command(
     "vol",
     "vol [dB] - get/set " + label + " volume in dB (0=unity, negative attenuates)",
@@ -840,7 +841,7 @@ static void register_volume_command(REPL& repl, std::string label) {
   );
 }
 
-static void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
+void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
 {
   Interleaved<float> t;
   try {
@@ -1046,6 +1047,8 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
 
   sub.run("track-info> ");
   g_player.playing.store(false);
+}
+
 }
 
 int main(int argc, char** argv)
