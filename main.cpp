@@ -785,7 +785,7 @@ struct CommandEntry {
 };
 
 class REPL {
- public:
+public:
   void register_command(std::string name, std::string help, Command fn) {
     commands_.emplace(std::move(name), CommandEntry{std::move(help), std::move(fn)});
   }
@@ -830,9 +830,9 @@ class REPL {
     }
   }
 
- private:
-    std::unordered_map<std::string, CommandEntry> commands_;
-    bool running_ = true;
+private:
+  std::unordered_map<std::string, CommandEntry> commands_;
+  bool running_ = true;
 };
 
 void register_volume_command(REPL& repl, std::string label) {
