@@ -952,9 +952,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
     try {
       int bar = std::stoi(a[0]);
-      auto it = std::remove(ti.cue_bars.begin(), ti.cue_bars.end(), bar);
-      if (it != ti.cue_bars.end()) {
-        ti.cue_bars.erase(it, ti.cue_bars.end());
+      if (std::erase(ti.cue_bars, bar) > 0) {
         dirty = true;
       }
     } catch (...) {
