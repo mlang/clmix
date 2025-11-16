@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <span>
 #include <iomanip>
 #include <limits>
 #include <charconv>
@@ -753,7 +754,7 @@ static std::vector<std::string> parse_command_line(const std::string& s) {
 }
 
 // Simple command registry.
-using Command = std::function<void(const std::vector<std::string>&)>;
+using Command = std::move_only_function<void(std::span<const std::string>)>;
 
 struct CommandEntry {
   std::string help;
@@ -785,9 +786,8 @@ class REPL {
         std::cerr << "Unknown command: " << args[0] << "\n";
         continue;
       }
-      std::vector<std::string> pargs(args.begin() + 1, args.end());
       try {
-        it->second.fn(pargs);
+        it->second.fn(std::span<const std::string>{args}.subspan(1));
       } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";
       } catch (...) {
@@ -816,7 +816,7 @@ static void register_volume_command(REPL& repl, std::string label) {
   repl.register_command(
     "vol",
     "vol [dB] - get/set " + label + " volume in dB (0=unity, negative attenuates)",
-    [label](const std::vector<std::string>& a){
+    [label](std::span<const std::string> a){
       if (a.empty()) {
         float db = g_player.trackGainDB.load();
         float lin = dbamp(db);
@@ -902,9 +902,9 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
   REPL sub;
   bool dirty = false;
 
-  sub.register_command("help", "List commands", [&](const std::vector<std::string>&){ sub.print_help(); });
+  sub.register_command("help", "List commands", [&](std::span<const std::string>){ sub.print_help(); });
 
-  sub.register_command("bpm", "bpm [value] - get/set BPM", [&](const std::vector<std::string>& a){
+  sub.register_command("bpm", "bpm [value] - get/set BPM", [&](std::span<const std::string> a){
     if (a.empty()) {
       std::println(std::cout, "BPM: {:.2f}", g_player.metro.bpm.load());
       return;
@@ -920,7 +920,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("bpb", "bpb [value] - get/set beats per bar", [&](const std::vector<std::string>& a){
+  sub.register_command("bpb", "bpb [value] - get/set beats per bar", [&](std::span<const std::string> a){
     if (a.empty()) {
       std::cout << "Beats/bar: " << g_player.metro.bpb.load() << "\n";
       return;
@@ -936,7 +936,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("cue", "cue <bar> - add a cue at given bar (1-based)", [&](const std::vector<std::string>& a){
+  sub.register_command("cue", "cue <bar> - add a cue at given bar (1-based)", [&](std::span<const std::string> a){
     if (a.size() != 1) {
       std::cerr << "Usage: cue <bar>\n";
       return;
@@ -963,7 +963,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("uncue", "uncue <bar> - remove a cue", [&](const std::vector<std::string>& a){
+  sub.register_command("uncue", "uncue <bar> - remove a cue", [&](std::span<const std::string> a){
     if (a.size() != 1) {
       std::cerr << "Usage: uncue <bar>\n";
       return;
@@ -977,7 +977,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("cues", "List cue bars", [&](const std::vector<std::string>&){
+  sub.register_command("cues", "List cue bars", [&](std::span<const std::string>){
     if (ti.cue_bars.empty()) {
       std::cout << "(no cues)\n";
       return;
@@ -991,7 +991,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
 
   register_volume_command(sub, "Track");
 
-  sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](const std::vector<std::string>&){
+  sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](std::span<const std::string>){
     g_db.upsert(ti);
     if (g_db.save(trackdb_path)) {
       std::cout << "Saved to " << trackdb_path << "\n";
@@ -1001,7 +1001,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("play", "Start playback with metronome overlay", [&](const std::vector<std::string>&){
+  sub.register_command("play", "Start playback with metronome overlay", [&](std::span<const std::string>){
     if (!g_player.track) {
       std::cerr << "No track loaded.\n";
       return;
@@ -1010,11 +1010,11 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     g_player.playing.store(true);
   });
 
-  sub.register_command("stop", "Stop playback", [&](const std::vector<std::string>&){
+  sub.register_command("stop", "Stop playback", [&](std::span<const std::string>){
     g_player.playing.store(false);
   });
 
-  sub.register_command("seek", "seek <bar> - jump to given bar (1-based)", [&](const std::vector<std::string>& a){
+  sub.register_command("seek", "seek <bar> - jump to given bar (1-based)", [&](std::span<const std::string> a){
     if (a.size() != 1) {
       std::cerr << "Usage: seek <bar>\n";
       return;
@@ -1042,7 +1042,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     }
   });
 
-  sub.register_command("exit", "Leave track shell", [&](const std::vector<std::string>&){
+  sub.register_command("exit", "Leave track shell", [&](std::span<const std::string>){
     sub.stop();
   });
 
@@ -1087,23 +1087,23 @@ int main(int argc, char** argv)
 
   REPL repl;
 
-  repl.register_command("help", "List commands", [&](const std::vector<std::string>&){
+  repl.register_command("help", "List commands", [&](std::span<const std::string>){
     repl.print_help();
   });
-  repl.register_command("exit", "Exit program", [&](const std::vector<std::string>&){
+  repl.register_command("exit", "Exit program", [&](std::span<const std::string>){
     repl.stop();
   });
-  repl.register_command("quit", "Alias for exit", [&](const std::vector<std::string>&){
+  repl.register_command("quit", "Alias for exit", [&](std::span<const std::string>){
     repl.stop();
   });
-  repl.register_command("echo", "Echo arguments; supports quoted args", [](const std::vector<std::string>& args){
+  repl.register_command("echo", "Echo arguments; supports quoted args", [](std::span<const std::string> args){
     for (size_t i = 0; i < args.size(); ++i) {
       if (i) std::cout << ' ';
       std::cout << args[i];
     }
     std::cout << "\n";
   });
-  repl.register_command("track-info", "track-info <file> - open per-track shell", [&](const std::vector<std::string>& args){
+  repl.register_command("track-info", "track-info <file> - open per-track shell", [&](std::span<const std::string> args){
     if (args.size() != 1) {
       std::cerr << "Usage: track-info <file>\n";
       return;
@@ -1114,7 +1114,7 @@ int main(int argc, char** argv)
   register_volume_command(repl, "Mix");
   
   // Mix commands
-  repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](const std::vector<std::string>& a){
+  repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](std::span<const std::string> a){
     if (a.size() != 1) { std::cerr << "Usage: add <file>\n"; return; }
     std::filesystem::path f = a[0];
     if (!g_db.find(f)) {
@@ -1144,7 +1144,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](const std::vector<std::string>& a){
+  repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](std::span<const std::string> a){
     if (g_mix_tracks.empty()) { std::cerr << "No tracks in mix.\n"; return; }
     if (a.empty()) {
       std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
@@ -1165,7 +1165,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("play", "Start playback (mix)", [&](const std::vector<std::string>&){
+  repl.register_command("play", "Start playback (mix)", [&](std::span<const std::string>){
     if (!g_player.track) {
       if (g_mix_tracks.empty()) { std::cerr << "No tracks in mix.\n"; return; }
       try {
@@ -1182,11 +1182,11 @@ int main(int argc, char** argv)
     g_player.playing.store(true);
   });
 
-  repl.register_command("stop", "Stop playback", [&](const std::vector<std::string>&){
+  repl.register_command("stop", "Stop playback", [&](std::span<const std::string>){
     g_player.playing.store(false);
   });
 
-  repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](const std::vector<std::string>& a){
+  repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](std::span<const std::string> a){
     if (a.size() != 1 || !g_player.track) { std::cerr << "Usage: seek <bar>\n"; return; }
     if (auto bar1 = parse_number<int>(a[0]); bar1) {
       int bar0 = std::max(0, *bar1 - 1);
@@ -1209,7 +1209,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("cue", "List all cue points in current mix", [&](const std::vector<std::string>&){
+  repl.register_command("cue", "List all cue points in current mix", [&](std::span<const std::string>){
     if (g_mix_cue_frames.empty()) { std::cout << "(no cues)\n"; return; }
     double fpb = (double)g_device_rate * 60.0 / g_mix_bpm;
     for (double f : g_mix_cue_frames) {
@@ -1218,7 +1218,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("random", "random - build mix from all trackdb entries in random order", [&](const std::vector<std::string>&){
+  repl.register_command("random", "random - build mix from all trackdb entries in random order", [&](std::span<const std::string>){
     if (g_db.items.empty()) {
       std::cerr << "Track DB is empty.\n";
       return;
@@ -1260,7 +1260,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](const std::vector<std::string>& a){
+  repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](std::span<const std::string> a){
     if (a.size() != 1) { std::cerr << "Usage: export <file.wav>\n"; return; }
     if (g_mix_tracks.empty()) { std::cerr << "No tracks in mix.\n"; return; }
 
