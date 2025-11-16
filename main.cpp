@@ -32,6 +32,7 @@
 #include <optional>
 #include <random>
 #include <type_traits>
+#include <scope>
 
 #include "vendor/mdspan.hpp"
 
@@ -428,17 +429,17 @@ static float detect_bpm(const Interleaved<float>& track)
   const uint_t hop_s = 512;
   const uint_t samplerate = static_cast<uint_t>(track.sample_rate);
 
-  aubio_tempo_t* tempo = new_aubio_tempo((char*)"default", win_s, hop_s, samplerate);
+  using tempo_ptr = std::unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
+  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+
+  tempo_ptr tempo{ new_aubio_tempo((char*)"default", win_s, hop_s, samplerate), &del_aubio_tempo };
   if (!tempo) {
     throw std::runtime_error("aubio: failed to create tempo object");
   }
 
-  fvec_t* inbuf = new_fvec(hop_s);
-  fvec_t* out = new_fvec(1);
+  fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
+  fvec_ptr out{ new_fvec(1), &del_fvec };
   if (!inbuf || !out) {
-    if (inbuf) del_fvec(inbuf);
-    if (out) del_fvec(out);
-    del_aubio_tempo(tempo);
     throw std::runtime_error("aubio: failed to allocate buffers");
   }
 
@@ -458,14 +459,10 @@ static float detect_bpm(const Interleaved<float>& track)
       }
       inbuf->data[j] = v;
     }
-    aubio_tempo_do(tempo, inbuf, out);
+    aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
   }
 
-  const float bpm = aubio_tempo_get_bpm(tempo);
-
-  del_fvec(inbuf);
-  del_fvec(out);
-  del_aubio_tempo(tempo);
+  const float bpm = aubio_tempo_get_bpm(tempo.get());
 
   return bpm;
 }
@@ -1077,10 +1074,11 @@ int main(int argc, char** argv)
     return 1;
   }
 
+  auto dev_guard = std::scope_exit([&]{ ma_device_uninit(&device); });
+
   res = ma_device_start(&device);
   if (res != MA_SUCCESS) {
     std::cerr << "Audio device start failed: " << ma_result_description(res) << "\n";
-    ma_device_uninit(&device);
     return 1;
   }
 
@@ -1322,6 +1320,5 @@ int main(int argc, char** argv)
 
   repl.run("clmix> ");
 
-  ma_device_uninit(&device);
   return 0;
 }
