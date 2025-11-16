@@ -281,20 +281,19 @@ struct TrackInfo {
  // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <cues_csv_or_->
  // Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
-  std::unordered_map<std::string, TrackInfo> items;
+  std::unordered_map<std::filesystem::path, TrackInfo> items;
 
-  static std::string normkey(const std::filesystem::path& p) {
-    // Use a stable textual key; generic_string() uses '/' separators.
-    return p.lexically_normal().generic_string();
+  static std::filesystem::path norm(const std::filesystem::path& p) {
+    return p.lexically_normal();
   }
 
   [[nodiscard]] TrackInfo* find(const std::filesystem::path& file) {
-    auto it = items.find(normkey(file));
+    auto it = items.find(norm(file));
     return (it == items.end()) ? nullptr : &it->second;
   }
 
   void upsert(const TrackInfo& info) {
-    items[normkey(info.filename)] = info;
+    items[norm(info.filename)] = info;
   }
 
   bool load(const std::filesystem::path& dbfile) {
