@@ -656,8 +656,6 @@ static void play(
       size_t i0 = (size_t)pos;
       double frac = pos - (double)i0;
       size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
-      size_t base0 = i0 * srcCh;
-      size_t base1 = i1 * srcCh;
 
       float click = player.metro.process(pos, framesPerBeatSrc, devRate);
 
