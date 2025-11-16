@@ -789,6 +789,37 @@ class REPL {
     bool running_ = true;
 };
 
+static void register_volume_command(REPL& repl, std::string label) {
+  repl.register_command(
+    "vol",
+    "vol [dB] - get/set " + label + " volume in dB (0=unity, negative attenuates)",
+    [label](const std::vector<std::string>& a){
+      if (a.empty()) {
+        float db = g_player.trackGainDB.load();
+        float lin = dbamp(db);
+        std::println(std::cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
+        return;
+      }
+      try {
+        std::string s = a[0];
+        if (s.size() >= 2) {
+          std::string tail = s.substr(s.size() - 2);
+          std::transform(tail.begin(), tail.end(), tail.begin(),
+                         [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+          if (tail == "db") s.resize(s.size() - 2);
+        }
+        float db = std::stof(s);
+        db = std::clamp(db, -60.f, 12.f);
+        g_player.trackGainDB.store(db);
+        float lin = dbamp(db);
+        std::println(std::cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
+      } catch (...) {
+        std::cerr << "Invalid dB value.\n";
+      }
+    }
+  );
+}
+
 static void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
 {
   Interleaved<float> t;
@@ -829,7 +860,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
   g_player.srcPos = 0.0;
   g_player.seekTargetFrames.store(0.0);
   g_player.seekPending.store(false);
-  g_player.trackGainDB.store(0.f);
+  // keep existing volume
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(ti.bpm);
   g_player.metro.bpb.store(std::max(1u, ti.beats_per_bar));
@@ -942,30 +973,7 @@ static void run_track_info_shell(const std::filesystem::path& f, const std::file
     std::cout << "\n";
   });
 
-  sub.register_command("vol", "vol [dB] - get/set track volume in dB (0=unity, negative attenuates)", [&](const std::vector<std::string>& a){
-    if (a.empty()) {
-      float db = g_player.trackGainDB.load();
-      float lin = dbamp(db);
-      std::println(std::cout, "Track volume: {:.2f} dB (x{:.3f})", db, lin);
-      return;
-    }
-    try {
-      std::string s = a[0];
-      if (s.size() >= 2) {
-        std::string tail = s.substr(s.size() - 2);
-        std::transform(tail.begin(), tail.end(), tail.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-        if (tail == "db") s.resize(s.size() - 2);
-      }
-      float db = std::stof(s);
-      if (db < -60.f) db = -60.f;
-      if (db > 12.f) db = 12.f;
-      g_player.trackGainDB.store(db);
-      float lin = dbamp(db);
-      std::println(std::cout, "Track volume set to {:.2f} dB (x{:.3f})", db, lin);
-    } catch (...) {
-      std::cerr << "Invalid dB value.\n";
-    }
-  });
+  register_volume_command(sub, "Track");
 
   sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](const std::vector<std::string>&){
     g_db.upsert(ti);
@@ -1087,7 +1095,9 @@ int main(int argc, char** argv)
     }
     run_track_info_shell(args[0], trackdb_path);
   });
-
+  
+  register_volume_command(repl, "Mix");
+  
   // Mix commands
   repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](const std::vector<std::string>& a){
     if (a.size() != 1) { std::cerr << "Usage: add <file>\n"; return; }
@@ -1108,7 +1118,7 @@ int main(int argc, char** argv)
       g_player.srcPos = 0.0;
       g_player.seekPending.store(false);
       g_player.seekTargetFrames.store(0.0);
-      g_player.trackGainDB.store(0.f);
+      // keep existing volume (persist across mix rebuilds)
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
@@ -1229,7 +1239,7 @@ int main(int argc, char** argv)
       g_player.srcPos = 0.0;
       g_player.seekPending.store(false);
       g_player.seekTargetFrames.store(0.0);
-      g_player.trackGainDB.store(0.f);
+      // keep existing volume (persist across mix rebuilds)
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(g_mix_bpm);
       g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
