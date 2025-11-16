@@ -59,14 +59,14 @@ constexpr float kHeadroomDB = -6.0f;
 
 template<typename T>
 requires std::is_floating_point_v<T>
-static constexpr T dbamp(T db) noexcept
+[[nodiscard]] static constexpr T dbamp(T db) noexcept
 {
   return std::pow(T(10.0), db * T(0.05));
 }
 
 template<typename T>
 requires std::is_floating_point_v<T>
-static constexpr T ampdb(T amp) noexcept
+[[nodiscard]] static constexpr T ampdb(T amp) noexcept
 {
   return T(20.0) * std::log10(amp);
 }
@@ -74,7 +74,7 @@ static constexpr T ampdb(T amp) noexcept
  // from_chars helper with messages
 template<typename T>
 requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
-static std::expected<T, std::string> parse_number(std::string_view s) {
+[[nodiscard]] static std::expected<T, std::string> parse_number(std::string_view s) {
   static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
   T v{};
   const char* b = s.data();
@@ -121,11 +121,11 @@ public:
   Interleaved(Interleaved&&) noexcept = default;
   Interleaved& operator=(Interleaved&&) noexcept = default;
 
-  std::size_t frames() const { return audio.extent(0); }
-  std::size_t channels() const { return audio.extent(1); }
-  std::size_t samples() const noexcept { return frames() * channels(); }
-  T* data() noexcept { return storage.data(); }
-  const T* data() const noexcept { return storage.data(); }
+  [[nodiscard]] std::size_t frames() const { return audio.extent(0); }
+  [[nodiscard]] std::size_t channels() const { return audio.extent(1); }
+  [[nodiscard]] std::size_t samples() const noexcept { return frames() * channels(); }
+  [[nodiscard]] T* data() noexcept { return storage.data(); }
+  [[nodiscard]] const T* data() const noexcept { return storage.data(); }
 
   void resize(std::size_t new_frames) {
     const std::size_t ch = channels();
@@ -143,7 +143,7 @@ public:
   }
 };
 
-static Interleaved<float> change_tempo(
+[[nodiscard]] static Interleaved<float> change_tempo(
   const Interleaved<float>& in,
   double from_bpm, double to_bpm,
   uint32_t to_rate,
@@ -243,7 +243,7 @@ struct Metronome {
     }
   }
 
-  float process(double posSrcFrames, double framesPerBeatSrc, uint32_t devRate) {
+  [[nodiscard]] float process(double posSrcFrames, double framesPerBeatSrc, uint32_t devRate) {
     if (clickLen == 0) clickLen = std::max(1, (int)(devRate / 100)); // ~10ms
     uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
     if (beatIndex != lastBeatIndex) {
@@ -285,7 +285,7 @@ struct TrackDB {
     return p.lexically_normal().generic_string();
   }
 
-  TrackInfo* find(const std::filesystem::path& file) {
+  [[nodiscard]] TrackInfo* find(const std::filesystem::path& file) {
     auto it = items.find(normkey(file));
     return (it == items.end()) ? nullptr : &it->second;
   }
@@ -395,7 +395,7 @@ static std::vector<double> g_mix_cue_frames; // absolute cue frames in mix timel
 static unsigned g_mix_bpb = 4;
 static double g_mix_bpm = 120.0;
 
-Interleaved<float> load_track(std::filesystem::path file)
+[[nodiscard]] Interleaved<float> load_track(std::filesystem::path file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
@@ -420,7 +420,7 @@ Interleaved<float> load_track(std::filesystem::path file)
   return track;
 }
 
-static float detect_bpm(const Interleaved<float>& track)
+[[nodiscard]] static float detect_bpm(const Interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
@@ -471,7 +471,7 @@ static float detect_bpm(const Interleaved<float>& track)
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-static std::shared_ptr<Interleaved<float>> build_mix_track(
+[[nodiscard]] static std::shared_ptr<Interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
   std::optional<double> force_bpm = std::nullopt,
   int converter_type = SRC_LINEAR
@@ -692,7 +692,7 @@ static void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_u
 // - Whitespace splits args when not inside quotes.
 // - Single quotes: literals (no escapes inside).
 // - Double quotes: supports backslash escaping of \" and \\ (simple treatment).
-static std::vector<std::string> parse_command_line(const std::string& s) {
+[[nodiscard]] static std::vector<std::string> parse_command_line(const std::string& s) {
   std::vector<std::string> out;
   std::string cur;
   bool in_single = false, in_double = false, escape = false;
