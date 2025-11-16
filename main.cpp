@@ -88,8 +88,7 @@ static std::expected<T, std::string> parse_number(std::string_view s) {
   std::from_chars_result r = [&]{
     if constexpr (std::is_floating_point_v<T>)
       return std::from_chars(b, e, v, std::chars_format::general);
-    else
-      return std::from_chars(b, e, v);
+    return std::from_chars(b, e, v);
   }();
 
   constexpr std::errc ok{};
