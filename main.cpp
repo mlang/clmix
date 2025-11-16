@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <ranges>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -490,9 +491,8 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
 
   // Mix BPM default: mean of track bpms (unless forced)
   auto bpm = force_bpm.value_or([&]{
-    return std::ranges::fold_left(tis, 0.0,
-      [](double a, TrackInfo const &b) { return a + b.bpm; }
-    ) / static_cast<double>(tis.size());
+    const auto bpms = tis | std::views::transform(&TrackInfo::bpm);
+    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / static_cast<double>(tis.size());
   }());
   g_mix_bpm = bpm;
   g_mix_bpb = tis.front().beats_per_bar;
