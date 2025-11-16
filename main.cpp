@@ -102,17 +102,14 @@ public:
   }
 
   // Scale all samples in-place by gain.
-  template<typename U>
-  requires std::is_arithmetic_v<U>
-  Interleaved& operator*=(U gain) noexcept {
+  template<typename U> requires std::is_arithmetic_v<U>
+  Interleaved& operator*=(U gain) noexcept
+  {
     const T g = static_cast<T>(gain);
-    for (auto& s : storage) {
-      s *= g;
-    }
+    for (T& s: storage) s *= g;
     return *this;
   }
 };
-
 
 static Interleaved<float> change_tempo(
   const Interleaved<float>& in,
