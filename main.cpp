@@ -34,6 +34,7 @@
 #include <optional>
 #include <random>
 #include <type_traits>
+#include <utility>
 
 #include "vendor/mdspan.hpp"
 
@@ -160,7 +161,7 @@ public:
   if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate == 0 || to_rate == 0)
     throw std::invalid_argument("BPM and sample rates must be positive.");
 
-  if (in_frames_sz > static_cast<std::size_t>(std::numeric_limits<long>::max()))
+  if (!std::in_range<long>(in_frames_sz))
     throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
 
   const long in_frames = static_cast<long>(in_frames_sz);
@@ -177,7 +178,7 @@ public:
 
   // Estimate output frames (add 1 for safety).
   const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
-  if (est_out_frames_d > static_cast<double>(std::numeric_limits<long>::max()))
+  if (!std::in_range<long>(est_out_frames_d))
     throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
@@ -192,7 +193,7 @@ public:
   data.end_of_input = 1;
   data.src_ratio = ratio;
 
-  if (channels > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+  if (!std::in_range<int>(channels))
     throw std::invalid_argument("Channel count too large for libsamplerate.");
   const auto ch = static_cast<int>(channels);
 
@@ -500,7 +501,9 @@ double g_mix_bpm = 120.0;
   g_mix_bpb = tis.front().beats_per_bar;
 
   const uint32_t outRate = g_device_rate;
-  const int outCh = (int)g_device_channels;
+  if (!std::in_range<int>(g_device_channels))
+    throw std::invalid_argument("Device channel count not representable as int");
+  const int outCh = static_cast<int>(g_device_channels);
   const double fpb = (double)outRate * 60.0 / bpm;
 
   struct Item {
@@ -1274,6 +1277,10 @@ int main(int argc, char** argv)
       // Rebuild a fresh mix with current BPM and tracks
       auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
 
+      if (!std::in_range<sf_count_t>(mixTrack->frames())) {
+        std::cerr << "Export failed: frame count too large for libsndfile.\n";
+        return;
+      }
       const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
 
       // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
