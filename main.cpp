@@ -460,7 +460,7 @@ static std::shared_ptr<Interleaved<float>> build_mix_track(
 
   // Mix BPM default: mean of track bpms (unless forced)
   auto bpm = force_bpm.value_or([&]{
-    return std::accumulate(std::next(tis.begin()), tis.end(), tis.front().bpm,
+    return std::ranges::fold_left(tis, 0.0,
       [](double a, TrackInfo const &b) { return a + b.bpm; }
     ) / static_cast<double>(tis.size());
   }());
@@ -808,8 +808,7 @@ static void register_volume_command(REPL& repl, std::string label) {
                          [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
           if (tail == "db") s.resize(s.size() - 2);
         }
-        float db = std::stof(s);
-        db = std::clamp(db, -60.f, 12.f);
+        const auto db = std::clamp(std::stof(s), -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
         std::println(std::cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
