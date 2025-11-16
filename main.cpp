@@ -124,8 +124,8 @@ public:
   Interleaved(Interleaved&&) noexcept = default;
   Interleaved& operator=(Interleaved&&) noexcept = default;
 
-  [[nodiscard]] std::size_t frames() const { return audio.extent(0); }
-  [[nodiscard]] std::size_t channels() const { return audio.extent(1); }
+  [[nodiscard]] std::size_t frames() const noexcept { return audio.extent(0); }
+  [[nodiscard]] std::size_t channels() const noexcept { return audio.extent(1); }
   [[nodiscard]] std::size_t samples() const noexcept { return frames() * channels(); }
   [[nodiscard]] T* data() noexcept { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
