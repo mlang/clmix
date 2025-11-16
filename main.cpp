@@ -100,18 +100,19 @@ public:
     storage.resize(new_frames * ch);
     audio = multichannel<T>(storage.data(), new_frames, ch);
   }
+
+  // Scale all samples in-place by gain.
+  template<typename U>
+  requires std::is_arithmetic_v<U>
+  Interleaved& operator*=(U gain) noexcept {
+    const T g = static_cast<T>(gain);
+    for (auto& s : storage) {
+      s *= g;
+    }
+    return *this;
+  }
 };
 
-// Scale all samples in-place by gain.
-template<typename T>
-inline Interleaved<T>& operator*=(Interleaved<T>& audio, T gain) noexcept {
-  T* p = audio.data();
-  const std::size_t n = audio.samples();
-  for (std::size_t i = 0; i < n; ++i) {
-    p[i] *= gain;
-  }
-  return audio;
-}
 
 static Interleaved<float> change_tempo(
   const Interleaved<float>& in,
