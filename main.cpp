@@ -75,14 +75,15 @@ requires std::is_floating_point_v<T>
 
 template<typename T>
 requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
-[[nodiscard]] std::expected<T, std::string> parse_number(std::string_view s) {
+[[nodiscard]] std::expected<T, std::string> parse_number(std::string_view s)
+{
   static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
   T v{};
   const char* b = s.data();
   const char* e = b + s.size();
 
   auto to_msg = [](std::errc ec) -> std::string {
-    if (ec == std::errc()) return {};
+    assert(ec != std::errc());
     if (ec == std::errc::invalid_argument) return "not a number";
     if (ec == std::errc::result_out_of_range) return "out of range";
     return "parse error";
