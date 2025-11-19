@@ -130,6 +130,18 @@ public:
   [[nodiscard]] T* data() noexcept { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
 
+  [[nodiscard]] T peak() const noexcept {
+    T p = T(0);
+    for (const T& s : storage) {
+      T a = std::abs(s);
+      if constexpr (std::is_floating_point_v<T>) {
+        if (!std::isfinite(a)) continue;
+      }
+      if (a > p) p = a;
+    }
+    return p;
+  }
+
   void resize(std::size_t new_frames) {
     const std::size_t ch = channels();
     storage.resize(new_frames * ch);
@@ -602,18 +614,20 @@ double g_mix_bpm = 120.0;
     }
   };
 
-  const float headroomLin = dbamp(kHeadroomDB);
 
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
+    const float targetHeadroom = dbamp(kHeadroomDB);
+    const float p = it.res.peak();
+    const float headroomGain = (p > 0.f && std::isfinite(p) && p > targetHeadroom) ? (targetHeadroom / p) : 1.0f;
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       size_t outF = (size_t)absF;
       if (outF >= totalFrames) break;
-      float a = headroomLin * env(f, it.res.frames(), it.firstCue, it.lastCue);
+      float a = headroomGain * env(f, it.res.frames(), it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
@@ -1387,17 +1401,13 @@ int main(int argc, char** argv)
       const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
 
       // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
-      double peak = 0.0;
-      for (std::size_t i = 0; i < mixTrack->samples(); ++i) {
-        double a = std::abs((double)mixTrack->data()[i]);
-        if (std::isfinite(a) && a > peak) peak = a;
-      }
+      const float peak = mixTrack->peak();
       // -0.1 dBFS target peak to leave a tiny safety margin
-      const double target = dbamp(-0.1);
+      const float target = dbamp(-0.1f);
 
-      if (peak > 0.0 && std::isfinite(peak)) {
-        double gain = target / peak;
-        if (gain > 1.0) {
+      if (peak > 0.0f && std::isfinite(peak)) {
+        const float gain = target / peak;
+        if (gain > 1.0f) {
           (*mixTrack) *= gain;
           std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
         }
