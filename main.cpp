@@ -621,7 +621,7 @@ double g_mix_bpm = 120.0;
     const size_t inChS = it.res.channels();
     const float targetHeadroom = dbamp(kHeadroomDB);
     const float p = it.res.peak();
-    const float headroomGain = (p > 0.f && std::isfinite(p) && p > targetHeadroom) ? (targetHeadroom / p) : 1.0f;
+    const float headroomGain = (p > 0.f && p > targetHeadroom) ? (targetHeadroom / p) : 1.0f;
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
@@ -1405,7 +1405,7 @@ int main(int argc, char** argv)
       // -0.1 dBFS target peak to leave a tiny safety margin
       const float target = dbamp(-0.1f);
 
-      if (peak > 0.0f && std::isfinite(peak)) {
+      if (peak > 0.0f) {
         const float gain = target / peak;
         if (gain > 1.0f) {
           (*mixTrack) *= gain;
@@ -1417,7 +1417,7 @@ int main(int argc, char** argv)
       SndfileHandle sf(outPath.string(),
                        SFM_WRITE,
                        SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                       (int)mixTrack->channels(),
+                       static_cast<int>(mixTrack->channels()),
                        static_cast<int>(mixTrack->sample_rate));
       if (sf.error()) {
         std::cerr << "Failed to open output file: " << outPath << "\n";
