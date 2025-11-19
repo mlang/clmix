@@ -10,6 +10,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <concepts>
 #include <cstdlib>
 #include <cstdint>
 #include <expected>
@@ -60,15 +61,13 @@ namespace {
 
 constexpr float kHeadroomDB = -6.0f;
 
-template<typename T>
-requires std::is_floating_point_v<T>
+template<std::floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
 {
   return std::pow(T(10.0), db * T(0.05));
 }
 
-template<typename T>
-requires std::is_floating_point_v<T>
+template<std::floating_point T>
 [[nodiscard]] constexpr T ampdb(T amp) noexcept
 {
   return T(20.0) * std::log10(amp);
