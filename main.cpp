@@ -14,7 +14,6 @@
 #include <cstdlib>
 #include <cstdint>
 #include <expected>
-#include <execution>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -528,53 +527,32 @@ double g_mix_bpm = 120.0;
     double lastCue;
     double offset;
   };
-  // Parallel per-track processing: load -> tempo change -> local cue frames (no throws in workers)
-  std::vector<std::expected<Item, std::string>> results(files.size());
-  std::vector<size_t> idx(files.size());
-  std::iota(idx.begin(), idx.end(), 0);
-
-  std::transform(std::execution::par, idx.begin(), idx.end(), results.begin(),
-    [&](size_t i) -> std::expected<Item, std::string> {
-      try {
-        Interleaved<float> t = load_track(files[i]);
-        const auto& ti = tis[i];
-
-        auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
-        size_t frames = res.frames();
-
-        int firstBar = ti.cue_bars.front();
-        int lastBar  = ti.cue_bars.back();
-        double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
-        double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
-        double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
-
-        // Clamp
-        if (frames == 0) { firstCue = lastCue = 0.0; }
-        else {
-          firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-          lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
-        }
-
-        return Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 };
-      } catch (const std::exception& e) {
-        return std::unexpected(std::string(e.what()));
-      } catch (...) {
-        return std::unexpected(std::string("unknown error"));
-      }
-    }
-  );
-
-  // Propagate first error (if any)
-  if (auto it = std::find_if(results.begin(), results.end(),
-                             [](const auto& r){ return !r.has_value(); });
-      it != results.end())
-  {
-    throw std::runtime_error(it->error());
-  }
-
   std::vector<Item> items;
-  items.reserve(results.size());
-  for (auto& r : results) items.push_back(std::move(r.value()));
+  items.reserve(files.size());
+
+  // Resample/time-stretch each track and compute its local cue frames
+  for (size_t i = 0; i < files.size(); ++i) {
+    Interleaved<float> t = load_track(files[i]);
+    const auto& ti = tis[i];
+
+    auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
+    size_t frames = res.frames();
+
+    int firstBar = ti.cue_bars.front();
+    int lastBar  = ti.cue_bars.back();
+    double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
+    double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
+    double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
+
+    // Clamp
+    if (frames == 0) { firstCue = lastCue = 0.0; }
+    else {
+      firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
+      lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+    }
+
+    items.push_back(Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 });
+  }
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
