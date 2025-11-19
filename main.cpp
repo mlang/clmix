@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -530,28 +531,37 @@ double g_mix_bpm = 120.0;
   std::vector<Item> items;
   items.reserve(files.size());
 
-  // Resample/time-stretch each track and compute its local cue frames
+  // Parallel per-track processing with std::async (exceptions propagate via future::get)
+  std::vector<std::future<Item>> futs;
+  futs.reserve(files.size());
+
   for (size_t i = 0; i < files.size(); ++i) {
-    Interleaved<float> t = load_track(files[i]);
-    const auto& ti = tis[i];
+    futs.push_back(std::async(std::launch::async, [&, i]() -> Item {
+      Interleaved<float> t = load_track(files[i]);
+      const auto& ti = tis[i];
 
-    auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
-    size_t frames = res.frames();
+      auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
+      size_t frames = res.frames();
 
-    int firstBar = ti.cue_bars.front();
-    int lastBar  = ti.cue_bars.back();
-    double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
-    double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
-    double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
+      int firstBar = ti.cue_bars.front();
+      int lastBar  = ti.cue_bars.back();
+      double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
+      double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
+      double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
 
-    // Clamp
-    if (frames == 0) { firstCue = lastCue = 0.0; }
-    else {
-      firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-      lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
-    }
+      // Clamp
+      if (frames == 0) { firstCue = lastCue = 0.0; }
+      else {
+        firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
+        lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+      }
 
-    items.push_back(Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 });
+      return Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 };
+    }));
+  }
+
+  for (auto& f : futs) {
+    items.push_back(f.get());
   }
 
   // Offsets: align last cue of A with first cue of B
