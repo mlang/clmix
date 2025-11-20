@@ -559,6 +559,16 @@ double g_mix_bpm = 120.0;
       Interleaved<float> t = load_track(files[i]);
       const auto& ti = tis[i];
 
+      // Apply per-track headroom before resampling to avoid resampler-induced clipping.
+      {
+        const float targetHeadroom = dbamp(kHeadroomDB);
+        const float p = t.peak();
+        if (p > 0.f && p > targetHeadroom) {
+          const float g = targetHeadroom / p;
+          t *= g;
+        }
+      }
+
       auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
       size_t frames = res.frames();
 
@@ -626,15 +636,12 @@ double g_mix_bpm = 120.0;
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
-    const float targetHeadroom = dbamp(kHeadroomDB);
-    const float p = it.res.peak();
-    const float headroomGain = (p > 0.f && p > targetHeadroom) ? (targetHeadroom / p) : 1.0f;
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       size_t outF = (size_t)absF;
       if (outF >= totalFrames) break;
-      float a = headroomGain * env(f, it.res.frames(), it.firstCue, it.lastCue);
+      float a = env(f, it.res.frames(), it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
