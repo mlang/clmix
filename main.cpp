@@ -22,6 +22,7 @@
 #include <iostream>
 #include <limits>
 #include <string_view>
+#include <map>
 #include <memory>
 #include <numbers>
 #include <numeric>
@@ -34,7 +35,6 @@
 #include <string>
 #include <sstream>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -295,7 +295,7 @@ struct TrackInfo {
  // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <upbeat_beats> <space> <time_offset_sec> <space> <cues_csv_or_->
  // Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
-  std::unordered_map<std::filesystem::path, TrackInfo> items;
+  std::map<std::filesystem::path, TrackInfo> items;
 
   static std::filesystem::path norm(const std::filesystem::path& p) {
     return p.lexically_normal();
@@ -854,7 +854,7 @@ public:
   }
 
 private:
-  std::unordered_map<std::string, CommandEntry> commands_;
+  std::map<std::string, CommandEntry> commands_;
   bool running_ = true;
 };
 
