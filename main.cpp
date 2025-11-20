@@ -1,4 +1,4 @@
-// Simple command-line tool to mix electronic music
+﻿// Simple command-line tool to mix electronic music
 //
 // At least C++23 is required to compile this program.
 // No need for defensive programming.
@@ -228,7 +228,7 @@ struct Metronome {
   int clickLen = 0; // in device samples
   float clickPhase = 0.f;
   float clickAmp = 0.f;
-  float clickFreqCurHz = 1000.f;
+  float clickFreqCurHz = 0.f;
 
   // click parameters
   float clickFreqHzBeat = 1000.f;
@@ -420,7 +420,14 @@ uint32_t g_device_rate = 44100;
 uint32_t g_device_channels = 2;
 
 std::vector<std::filesystem::path> g_mix_tracks;
-std::vector<double> g_mix_cue_frames; // absolute cue frames in mix timeline
+
+struct MixCue {
+  double frame;  // absolute cue frame in mix timeline
+  long   bar;    // 1-based global bar number in the mix
+};
+
+std::vector<MixCue> g_mix_cues;
+
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
@@ -637,22 +644,40 @@ double g_mix_bpm = 120.0;
     }
   }
 
-  // Accumulated cue frames in mix timeline
-  g_mix_cue_frames.clear();
+  // Accumulated cue frames and global bar numbers in mix timeline
+  g_mix_cues.clear();
   for (auto& it : items) {
     for (int bar : it.ti.cue_bars) {
-      double shiftOut = it.ti.upbeat_beats * fpb + it.ti.time_offset_sec * (double)outRate;
-      double local = shiftOut + (double)(bar - 1) * (double)it.ti.beats_per_bar * fpb;
-      g_mix_cue_frames.push_back(it.offset + local);
+      double shiftOut = it.ti.upbeat_beats * fpb
+                        + it.ti.time_offset_sec * (double)outRate;
+      double local = shiftOut
+                     + (double)(bar - 1) * (double)it.ti.beats_per_bar * fpb;
+      double mixFrame = it.offset + local;
+
+      // Compute global bar index from mixFrame using integer math on beats.
+      double beatsFromZero = mixFrame / fpb;
+      long barIdx = (long)std::floor(beatsFromZero / (double)g_mix_bpb) + 1;
+
+      g_mix_cues.push_back(MixCue{mixFrame, barIdx});
     }
   }
-  std::sort(g_mix_cue_frames.begin(), g_mix_cue_frames.end());
+
+  // Sort by frame, then by bar index for stability
+  std::sort(g_mix_cues.begin(), g_mix_cues.end(),
+            [](const MixCue& a, const MixCue& b) {
+              if (a.frame < b.frame) return true;
+              if (a.frame > b.frame) return false;
+              return a.bar < b.bar;
+            });
+
   // Remove near-duplicate cue frames caused by alignment overlaps
   {
     constexpr double eps = 1e-6;
-    auto it = std::unique(g_mix_cue_frames.begin(), g_mix_cue_frames.end(),
-                          [](double a, double b){ return std::abs(a - b) <= eps; });
-    g_mix_cue_frames.erase(it, g_mix_cue_frames.end());
+    auto it = std::unique(g_mix_cues.begin(), g_mix_cues.end(),
+                          [](const MixCue& a, const MixCue& b){
+                            return std::abs(a.frame - b.frame) <= eps;
+                          });
+    g_mix_cues.erase(it, g_mix_cues.end());
   }
 
   return out;
@@ -696,8 +721,8 @@ void play(
       }
 
       if (pos >= (double)(totalSrcFrames - 1)) {
-	player.playing.store(false);
-	break;
+        player.playing.store(false);
+        break;
       }
 
       // Linear interpolation per channel
@@ -1322,12 +1347,12 @@ int main(int argc, char** argv)
   });
 
   repl.register_command("cue", "List all cue points in current mix", [&](std::span<const std::string>){
-    if (g_mix_cue_frames.empty()) { std::cout << "(no cues)\n"; return; }
-    double fpb = (double)g_device_rate * 60.0 / g_mix_bpm;
-    double shift = g_player.upbeatBeats.load() * fpb + g_player.timeOffsetSec.load() * (double)g_device_rate;
-    for (double f : g_mix_cue_frames) {
-      long mixBar = (long)(std::floor((f - shift) / (fpb * (double)g_mix_bpb)) + 1.0);
-      std::cout << "bar " << mixBar << "\n";
+    if (g_mix_cues.empty()) {
+      std::cout << "(no cues)\n";
+      return;
+    }
+    for (const auto& c : g_mix_cues) {
+      std::cout << "bar " << c.bar << "\n";
     }
   });
 
