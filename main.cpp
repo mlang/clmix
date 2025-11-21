@@ -613,9 +613,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   assert(max_attack_db_per_s > 0.0f);
   assert(max_release_db_per_s > 0.0f);
 
-  // 1) Required attenuation (dB) to meet ceiling at each frame
-  std::vector<float> req(frames, 0.f);
-  for (size_t f = 0; f < frames; ++f) {
+  // 1) Required attenuation (dB) to meet ceiling at each frame (computed on demand)
+  auto required_att_dB = [&](size_t f) -> float {
     float pk = 0.f;
     for (size_t c = 0; c < ch; ++c) {
       float v = buf.audio[f, c];
@@ -623,16 +622,18 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       v = std::fabs(v);
       if (v > pk) pk = v;
     }
-    req[f] = (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f; // attenuation needed in dB (>= 0)
-  }
+    // attenuation needed in dB (>= 0)
+    return (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
+  };
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
   const float attack_step  = max_attack_db_per_s / static_cast<float>(sr);
   std::vector<float> att(frames, 0.f);
-  att[frames - 1] = req[frames - 1];
+  att[frames - 1] = required_att_dB(frames - 1);
   for (size_t i = frames - 1; i-- > 0; ) {
     float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
-    att[i] = std::max(req[i], prev);
+    float req_i = required_att_dB(i);
+    att[i] = std::max(req_i, prev);
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
