@@ -506,100 +506,6 @@ double g_mix_bpm = 120.0;
   return bpm;
 }
 
-void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double lookahead_sec)
-{
-  const uint32_t sr = buf.sample_rate;
-  const size_t frames = buf.frames();
-  const size_t ch = buf.channels();
-  if (sr == 0 || frames == 0 || ch == 0) return;
-
-  const float threshold = dbamp(headroom_dB); // < 1 for negative dB
-  const size_t L = (lookahead_sec > 0.0)
-                   ? static_cast<size_t>(std::floor(lookahead_sec * static_cast<double>(sr)))
-                   : 0;
-
-  // 1) Per-frame absolute peak across channels
-  std::vector<float> p(frames, 0.f);
-  for (size_t f = 0; f < frames; ++f) {
-    float pk = 0.f;
-    for (size_t c = 0; c < ch; ++c) {
-      float v = buf.audio[f, c];
-      if (!std::isfinite(v)) continue;
-      v = std::fabs(v);
-      if (v > pk) pk = v;
-    }
-    p[f] = pk;
-  }
-
-  // 2) Lookahead max and its index: e[f] = max(p[f..f+L]), imax[f] = argmax
-  std::vector<float> e(frames, 0.f);
-  std::vector<size_t> imax(frames, 0);
-  if (L == 0) {
-    for (size_t f = 0; f < frames; ++f) { e[f] = p[f]; imax[f] = f; }
-  } else {
-    std::deque<size_t> dq;
-    size_t j = 0;
-    for (size_t f = 0; f < frames; ++f) {
-      size_t j_end = std::min(frames - 1, f + L);
-      while (j <= j_end) {
-        while (!dq.empty() && p[dq.back()] <= p[j]) dq.pop_back();
-        dq.push_back(j);
-        ++j;
-      }
-      while (!dq.empty() && dq.front() < f) dq.pop_front();
-      if (!dq.empty()) {
-        e[f] = p[dq.front()];
-        imax[f] = dq.front();
-      } else {
-        e[f] = 0.f;
-        imax[f] = f;
-      }
-    }
-  }
-
-  // 3) Predictive ramp to arrive at required gain on the future max
-  const double release_sec = std::max(lookahead_sec, 0.050);
-  const float alpha_up = (release_sec > 0.0)
-                         ? static_cast<float>(std::exp(-1.0 / (release_sec * static_cast<double>(sr))))
-                         : 0.f;
-
-  auto clamp01 = [](float x){ return std::isfinite(x) ? std::clamp(x, 0.f, 1.f) : 1.f; };
-
-  float g = 1.f;
-  for (size_t f = 0; f < frames; ++f) {
-    float ef = e[f];
-    // Desired gain at the max so that p[max] * g <= threshold
-    float g_req = (ef > threshold && ef > 0.f) ? (threshold / ef) : 1.f;
-    g_req = clamp01(g_req);
-
-    if (g > g_req) {
-      size_t im = imax[f];
-      size_t rem = (im > f) ? (im - f) : 0;
-      if (rem == 0) {
-        // We are at the max: hit the exact required gain now
-        g = std::min(g, g_req);
-      } else {
-        // Multiplicative step so that after 'rem' steps we reach g_req
-        float denom = std::max(g, 1e-12f);
-        float ratio = clamp01(g_req / denom);
-        float step = std::exp(std::log(std::max(ratio, 1e-12f)) / static_cast<float>(rem));
-        step = clamp01(step);
-        g = g * step;
-        if (!std::isfinite(g)) g = g_req; // safety fallback
-      }
-    } else {
-      // Release only upward
-      g = alpha_up * g + (1.f - alpha_up) * g_req;
-    }
-
-    g = clamp01(g);
-
-    for (size_t c = 0; c < ch; ++c) {
-      buf.audio[f, c] *= g;
-    }
-  }
-}
-
 void apply_two_pass_limiter_db(Interleaved<float>& buf,
                                float ceiling_dB = -1.0f,
                                float max_attack_db_per_s = 200.0f,
@@ -797,8 +703,6 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   // Final offline two-pass limiter for transparent ceiling control
   apply_two_pass_limiter_db(*out, -1.0f, 200.0f, 40.0f);
-  // For A/B testing, the original lookahead limiter is kept here:
-  // apply_lookahead_limiter(*out, -0.1f, 0.5);
 
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
