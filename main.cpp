@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cmath>
 #include <concepts>
+#include <deque>
 #include <cstdlib>
 #include <cstdint>
 #include <expected>
@@ -214,6 +215,7 @@ public:
     throw std::runtime_error(src_strerror(err));
 
   out.resize(static_cast<std::size_t>(data.output_frames_gen));
+
   return out;
 }
 
@@ -504,6 +506,81 @@ double g_mix_bpm = 120.0;
   return bpm;
 }
 
+void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double lookahead_sec)
+{
+  const uint32_t sr = buf.sample_rate;
+  const size_t frames = buf.frames();
+  const size_t ch = buf.channels();
+  if (sr == 0 || frames == 0 || ch == 0) return;
+
+  const float threshold = dbamp(headroom_dB);
+  const size_t L = (lookahead_sec > 0.0)
+                   ? static_cast<size_t>(std::floor(lookahead_sec * static_cast<double>(sr)))
+                   : 0;
+
+  // 1) Frame-wise absolute peak across channels
+  std::vector<float> p(frames, 0.f);
+  for (size_t f = 0; f < frames; ++f) {
+    float pk = 0.f;
+    for (size_t c = 0; c < ch; ++c) {
+      float v = buf.audio[f, c];
+      if (!std::isfinite(v)) continue;
+      v = std::fabs(v);
+      if (v > pk) pk = v;
+    }
+    p[f] = pk;
+  }
+
+  // 2) Lookahead max envelope e[f] = max(p[f..f+L])
+  std::vector<float> e(frames, 0.f);
+  if (L == 0) {
+    e = p;
+  } else {
+    std::deque<size_t> dq;
+    size_t j = 0;
+    for (size_t f = 0; f < frames; ++f) {
+      size_t j_end = std::min(frames - 1, f + L);
+      while (j <= j_end) {
+        while (!dq.empty() && p[dq.back()] <= p[j]) dq.pop_back();
+        dq.push_back(j);
+        ++j;
+      }
+      while (!dq.empty() && dq.front() < f) dq.pop_front();
+      e[f] = dq.empty() ? 0.f : p[dq.front()];
+    }
+  }
+
+  // 3) Desired attenuation-only target gain
+  std::vector<float> d(frames, 1.f);
+  for (size_t f = 0; f < frames; ++f) {
+    float ef = e[f];
+    if (ef > threshold && ef > 0.f) d[f] = threshold / ef; // in (0,1)
+    else d[f] = 1.f;
+  }
+
+  // 4) Apply smoothing: immediate downward changes, release-only upward
+  const double release_sec = std::max(lookahead_sec, 0.050);
+  const float alpha_up = (release_sec > 0.0)
+                         ? static_cast<float>(std::exp(-1.0 / (release_sec * static_cast<double>(sr))))
+                         : 0.f;
+
+  float g = 1.f;
+  for (size_t f = 0; f < frames; ++f) {
+    float target = d[f];
+    if (target < g) {
+      g = target; // immediate reduction
+    } else {
+      g = alpha_up * g + (1.f - alpha_up) * target; // smooth upward
+    }
+    if (!std::isfinite(g) || g < 0.f) g = 1.f;
+    if (g > 1.f) g = 1.f;
+
+    for (size_t c = 0; c < ch; ++c) {
+      buf.audio[f, c] *= g;
+    }
+  }
+}
+
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
@@ -559,15 +636,7 @@ double g_mix_bpm = 120.0;
       Interleaved<float> t = load_track(files[i]);
       const auto& ti = tis[i];
 
-      // Apply per-track headroom before resampling to avoid resampler-induced clipping.
-      {
-        const float targetHeadroom = dbamp(kHeadroomDB);
-        const float p = t.peak();
-        if (p > 0.f && p > targetHeadroom) {
-          const float g = targetHeadroom / p;
-          t *= g;
-        }
-      }
+      
 
       auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
       size_t frames = res.frames();
@@ -650,6 +719,9 @@ double g_mix_bpm = 120.0;
       }
     }
   }
+
+  // Final lookahead limiter to keep the mix under target headroom
+  apply_lookahead_limiter(*out, -0.1f, 0.5);
 
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
@@ -1431,19 +1503,6 @@ int main(int argc, char** argv)
         return;
       }
       const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
-
-      // Peak-normalize to -0.1 dBFS (amplify only; no clipping)
-      const float peak = mixTrack->peak();
-      // -0.1 dBFS target peak to leave a tiny safety margin
-      const float target = dbamp(-0.1f);
-
-      if (peak > 0.0f) {
-        const float gain = target / peak;
-        if (gain > 1.0f) {
-          (*mixTrack) *= gain;
-          std::println(std::cout, "Applied export gain: +{:.2f} dB", ampdb(gain));
-        }
-      }
 
       // Open 24-bit WAV for writing
       SndfileHandle sf(outPath.string(),
