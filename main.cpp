@@ -513,12 +513,12 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
   const size_t ch = buf.channels();
   if (sr == 0 || frames == 0 || ch == 0) return;
 
-  const float threshold = dbamp(headroom_dB);
+  const float threshold = dbamp(headroom_dB); // < 1 for negative dB
   const size_t L = (lookahead_sec > 0.0)
                    ? static_cast<size_t>(std::floor(lookahead_sec * static_cast<double>(sr)))
                    : 0;
 
-  // 1) Frame-wise absolute peak across channels
+  // 1) Per-frame absolute peak across channels
   std::vector<float> p(frames, 0.f);
   for (size_t f = 0; f < frames; ++f) {
     float pk = 0.f;
@@ -531,10 +531,11 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
     p[f] = pk;
   }
 
-  // 2) Lookahead max envelope e[f] = max(p[f..f+L])
+  // 2) Lookahead max and its index: e[f] = max(p[f..f+L]), imax[f] = argmax
   std::vector<float> e(frames, 0.f);
+  std::vector<size_t> imax(frames, 0);
   if (L == 0) {
-    e = p;
+    for (size_t f = 0; f < frames; ++f) { e[f] = p[f]; imax[f] = f; }
   } else {
     std::deque<size_t> dq;
     size_t j = 0;
@@ -546,34 +547,52 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
         ++j;
       }
       while (!dq.empty() && dq.front() < f) dq.pop_front();
-      e[f] = dq.empty() ? 0.f : p[dq.front()];
+      if (!dq.empty()) {
+        e[f] = p[dq.front()];
+        imax[f] = dq.front();
+      } else {
+        e[f] = 0.f;
+        imax[f] = f;
+      }
     }
   }
 
-  // 3) Desired attenuation-only target gain
-  std::vector<float> d(frames, 1.f);
-  for (size_t f = 0; f < frames; ++f) {
-    float ef = e[f];
-    if (ef > threshold && ef > 0.f) d[f] = threshold / ef; // in (0,1)
-    else d[f] = 1.f;
-  }
-
-  // 4) Apply smoothing: immediate downward changes, release-only upward
+  // 3) Predictive ramp to arrive at required gain on the future max
   const double release_sec = std::max(lookahead_sec, 0.050);
   const float alpha_up = (release_sec > 0.0)
                          ? static_cast<float>(std::exp(-1.0 / (release_sec * static_cast<double>(sr))))
                          : 0.f;
 
+  auto clamp01 = [](float x){ return std::isfinite(x) ? std::clamp(x, 0.f, 1.f) : 1.f; };
+
   float g = 1.f;
   for (size_t f = 0; f < frames; ++f) {
-    float target = d[f];
-    if (target < g) {
-      g = target; // immediate reduction
+    float ef = e[f];
+    // Desired gain at the max so that p[max] * g <= threshold
+    float g_req = (ef > threshold && ef > 0.f) ? (threshold / ef) : 1.f;
+    g_req = clamp01(g_req);
+
+    if (g > g_req) {
+      size_t im = imax[f];
+      size_t rem = (im > f) ? (im - f) : 0;
+      if (rem == 0) {
+        // We are at the max: hit the exact required gain now
+        g = std::min(g, g_req);
+      } else {
+        // Multiplicative step so that after 'rem' steps we reach g_req
+        float denom = std::max(g, 1e-12f);
+        float ratio = clamp01(g_req / denom);
+        float step = std::exp(std::log(std::max(ratio, 1e-12f)) / static_cast<float>(rem));
+        step = clamp01(step);
+        g = g * step;
+        if (!std::isfinite(g)) g = g_req; // safety fallback
+      }
     } else {
-      g = alpha_up * g + (1.f - alpha_up) * target; // smooth upward
+      // Release only upward
+      g = alpha_up * g + (1.f - alpha_up) * g_req;
     }
-    if (!std::isfinite(g) || g < 0.f) g = 1.f;
-    if (g > 1.f) g = 1.f;
+
+    g = clamp01(g);
 
     for (size_t c = 0; c < ch; ++c) {
       buf.audio[f, c] *= g;
