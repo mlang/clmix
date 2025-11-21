@@ -610,8 +610,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   const size_t ch = buf.channels();
   if (sr == 0 || frames == 0 || ch == 0) return;
 
-  // 1) Per-frame absolute peak across channels
-  std::vector<float> p(frames, 0.f);
+  // 1) Required attenuation (dB) to meet ceiling at each frame
+  std::vector<float> req(frames, 0.f);
   for (size_t f = 0; f < frames; ++f) {
     float pk = 0.f;
     for (size_t c = 0; c < ch; ++c) {
@@ -620,23 +620,16 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       v = std::fabs(v);
       if (v > pk) pk = v;
     }
-    p[f] = pk;
-  }
-
-  // 2) Required attenuation (dB) to meet ceiling at each frame
-  std::vector<float> req(frames, 0.f);
-  for (size_t f = 0; f < frames; ++f) {
-    float pk = p[f];
-    if (!(pk > 0.f) || !std::isfinite(pk)) {
+    if (!(pk > 0.f)) {
       req[f] = 0.f;
       continue;
     }
-    float level_dB = 20.f * std::log10(pk);
+    float level_dB = ampdb(pk);
     float r = level_dB - ceiling_dB;
     req[f] = r > 0.f ? r : 0.f; // attenuation needed in dB (>= 0)
   }
 
-  // 3) Backward pass: limit how fast attenuation may increase (attack slope)
+  // 2) Backward pass: limit how fast attenuation may increase (attack slope)
   const float attack_step = (max_attack_db_per_s > 0.0 && sr > 0)
                             ? static_cast<float>(max_attack_db_per_s / static_cast<double>(sr))
                             : std::numeric_limits<float>::infinity();
@@ -650,7 +643,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     }
   }
 
-  // 4) Forward pass: limit how fast attenuation may decrease (release slope)
+  // 3) Forward pass: limit how fast attenuation may decrease (release slope)
   const float release_step = (max_release_db_per_s > 0.0 && sr > 0)
                              ? static_cast<float>(max_release_db_per_s / static_cast<double>(sr))
                              : std::numeric_limits<float>::infinity();
@@ -661,7 +654,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     att[i] = std::max(0.f, y);
   }
 
-  // 5) Apply gain: g = 10^(-att_dB/20) clamped to [0,1]
+  // 4) Apply gain: g = 10^(-att_dB/20) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
     float g = std::pow(10.0f, -0.05f * att[f]);
     if (!(g >= 0.f && g <= 1.f) || !std::isfinite(g)) g = 1.f;
