@@ -600,6 +600,77 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
   }
 }
 
+void apply_two_pass_limiter_db(Interleaved<float>& buf,
+                               float ceiling_dB = -1.0f,
+                               double max_attack_db_per_s = 200.0,
+                               double max_release_db_per_s = 40.0)
+{
+  const uint32_t sr = buf.sample_rate;
+  const size_t frames = buf.frames();
+  const size_t ch = buf.channels();
+  if (sr == 0 || frames == 0 || ch == 0) return;
+
+  // 1) Per-frame absolute peak across channels
+  std::vector<float> p(frames, 0.f);
+  for (size_t f = 0; f < frames; ++f) {
+    float pk = 0.f;
+    for (size_t c = 0; c < ch; ++c) {
+      float v = buf.audio[f, c];
+      if (!std::isfinite(v)) continue;
+      v = std::fabs(v);
+      if (v > pk) pk = v;
+    }
+    p[f] = pk;
+  }
+
+  // 2) Required attenuation (dB) to meet ceiling at each frame
+  std::vector<float> req(frames, 0.f);
+  for (size_t f = 0; f < frames; ++f) {
+    float pk = p[f];
+    if (!(pk > 0.f) || !std::isfinite(pk)) {
+      req[f] = 0.f;
+      continue;
+    }
+    float level_dB = 20.f * std::log10(pk);
+    float r = level_dB - ceiling_dB;
+    req[f] = r > 0.f ? r : 0.f; // attenuation needed in dB (>= 0)
+  }
+
+  // 3) Backward pass: limit how fast attenuation may increase (attack slope)
+  const float attack_step = (max_attack_db_per_s > 0.0 && sr > 0)
+                            ? static_cast<float>(max_attack_db_per_s / static_cast<double>(sr))
+                            : std::numeric_limits<float>::infinity();
+  std::vector<float> att(frames, 0.f);
+  if (frames > 0) {
+    att[frames - 1] = req[frames - 1];
+    for (size_t i = frames - 1; i-- > 0; ) {
+      float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
+      if (!std::isfinite(prev)) prev = 0.f;
+      att[i] = std::max(req[i], prev);
+    }
+  }
+
+  // 4) Forward pass: limit how fast attenuation may decrease (release slope)
+  const float release_step = (max_release_db_per_s > 0.0 && sr > 0)
+                             ? static_cast<float>(max_release_db_per_s / static_cast<double>(sr))
+                             : std::numeric_limits<float>::infinity();
+  float y = 0.f;
+  for (size_t i = 0; i < frames; ++i) {
+    if (i == 0) y = att[0];
+    else        y = std::max(att[i], y - release_step);
+    att[i] = std::max(0.f, y);
+  }
+
+  // 5) Apply gain: g = 10^(-att_dB/20) clamped to [0,1]
+  for (size_t f = 0; f < frames; ++f) {
+    float g = std::pow(10.0f, -0.05f * att[f]);
+    if (!(g >= 0.f && g <= 1.f) || !std::isfinite(g)) g = 1.f;
+    for (size_t c = 0; c < ch; ++c) {
+      buf.audio[f, c] *= g;
+    }
+  }
+}
+
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
@@ -746,8 +817,10 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
     }
   }
 
-  // Final lookahead limiter to keep the mix under target headroom
-  apply_lookahead_limiter(*out, -0.1f, 0.5);
+  // Final offline two-pass limiter for transparent ceiling control
+  apply_two_pass_limiter_db(*out, -1.0f, 200.0, 40.0);
+  // For A/B testing, the original lookahead limiter is kept here:
+  // apply_lookahead_limiter(*out, -0.1f, 0.5);
 
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
