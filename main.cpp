@@ -635,20 +635,18 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
   const float attack_step  = static_cast<float>(max_attack_db_per_s / static_cast<double>(sr));
   std::vector<float> att(frames, 0.f);
-  if (frames > 0) {
-    att[frames - 1] = req[frames - 1];
-    for (size_t i = frames - 1; i-- > 0; ) {
-      float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
-      att[i] = std::max(req[i], prev);
-    }
+  att[frames - 1] = req[frames - 1];
+  for (size_t i = frames - 1; i-- > 0; ) {
+    float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
+    att[i] = std::max(req[i], prev);
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
   const float release_step = static_cast<float>(max_release_db_per_s / static_cast<double>(sr));
-  float y = 0.f;
-  for (size_t i = 0; i < frames; ++i) {
-    if (i == 0) y = att[0];
-    else        y = std::max(att[i], y - release_step);
+  float y = att[0];
+  att[0] = std::max(0.f, y);
+  for (size_t i = 1; i < frames; ++i) {
+    y = std::max(att[i], y - release_step);
     att[i] = std::max(0.f, y);
   }
 
