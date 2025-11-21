@@ -61,7 +61,7 @@ extern "C" {
 
 namespace {
 
-constexpr float kHeadroomDB = -6.0f;
+constexpr float kHeadroomDB = -3.0f;
 
 template<std::floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
@@ -655,6 +655,13 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
       Interleaved<float> t = load_track(files[i]);
       const auto& ti = tis[i];
 
+      {
+        const float targetHeadroom = dbamp(kHeadroomDB);
+        const float peak = t.peak();
+        if (peak > 0.f && peak > targetHeadroom) {
+          t *= targetHeadroom / peak;
+        }
+      }
       
 
       auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
