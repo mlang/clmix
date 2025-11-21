@@ -61,7 +61,7 @@ extern "C" {
 
 namespace {
 
-constexpr float kHeadroomDB = -3.0f;
+constexpr float kHeadroomDB = -2.0f;
 
 template<std::floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
