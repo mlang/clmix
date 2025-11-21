@@ -631,9 +631,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   std::vector<float> att(frames, 0.f);
   att[frames - 1] = required_att_dB(frames - 1);
   for (size_t i = frames - 1; i-- > 0; ) {
-    float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
-    float req_i = required_att_dB(i);
-    att[i] = std::max(req_i, prev);
+    att[i] = std::max(required_att_dB(i), att[i + 1] - attack_step);
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
