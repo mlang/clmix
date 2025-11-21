@@ -636,11 +636,10 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
   const float release_step = max_release_db_per_s / static_cast<float>(sr);
-  float y = att[0];
-  att[0] = std::max(0.f, y);
+  att[0] = std::max(0.f, att[0]);
   for (size_t i = 1; i < frames; ++i) {
-    y = std::max(att[i], y - release_step);
-    att[i] = std::max(0.f, y);
+    att[i] = std::max(att[i], att[i - 1] - release_step);
+    att[i] = std::max(0.f, att[i]);
   }
 
   // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
