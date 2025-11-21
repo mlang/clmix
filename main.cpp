@@ -623,13 +623,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       v = std::fabs(v);
       if (v > pk) pk = v;
     }
-    if (!(pk > 0.f)) {
-      req[f] = 0.f;
-      continue;
-    }
-    float level_dB = ampdb(pk);
-    float r = level_dB - ceiling_dB;
-    req[f] = r > 0.f ? r : 0.f; // attenuation needed in dB (>= 0)
+    req[f] = (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f; // attenuation needed in dB (>= 0)
   }
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
