@@ -602,16 +602,16 @@ void apply_lookahead_limiter(Interleaved<float>& buf, float headroom_dB, double 
 
 void apply_two_pass_limiter_db(Interleaved<float>& buf,
                                float ceiling_dB = -1.0f,
-                               double max_attack_db_per_s = 200.0,
-                               double max_release_db_per_s = 40.0)
+                               float max_attack_db_per_s = 200.0f,
+                               float max_release_db_per_s = 40.0f)
 {
   const uint32_t sr = buf.sample_rate;
   const size_t frames = buf.frames();
   const size_t ch = buf.channels();
   if (sr == 0 || frames == 0 || ch == 0) return;
 
-  assert(max_attack_db_per_s > 0.0);
-  assert(max_release_db_per_s > 0.0);
+  assert(max_attack_db_per_s > 0.0f);
+  assert(max_release_db_per_s > 0.0f);
 
   // 1) Required attenuation (dB) to meet ceiling at each frame
   std::vector<float> req(frames, 0.f);
@@ -627,7 +627,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   }
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
-  const float attack_step  = static_cast<float>(max_attack_db_per_s / static_cast<double>(sr));
+  const float attack_step  = max_attack_db_per_s / static_cast<float>(sr);
   std::vector<float> att(frames, 0.f);
   att[frames - 1] = req[frames - 1];
   for (size_t i = frames - 1; i-- > 0; ) {
@@ -636,7 +636,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
-  const float release_step = static_cast<float>(max_release_db_per_s / static_cast<double>(sr));
+  const float release_step = max_release_db_per_s / static_cast<float>(sr);
   float y = att[0];
   att[0] = std::max(0.f, y);
   for (size_t i = 1; i < frames; ++i) {
@@ -800,7 +800,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   }
 
   // Final offline two-pass limiter for transparent ceiling control
-  apply_two_pass_limiter_db(*out, -1.0f, 200.0, 40.0);
+  apply_two_pass_limiter_db(*out, -1.0f, 200.0f, 40.0f);
   // For A/B testing, the original lookahead limiter is kept here:
   // apply_lookahead_limiter(*out, -0.1f, 0.5);
 
