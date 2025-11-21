@@ -610,6 +610,9 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   const size_t ch = buf.channels();
   if (sr == 0 || frames == 0 || ch == 0) return;
 
+  assert(max_attack_db_per_s > 0.0);
+  assert(max_release_db_per_s > 0.0);
+
   // 1) Required attenuation (dB) to meet ceiling at each frame
   std::vector<float> req(frames, 0.f);
   for (size_t f = 0; f < frames; ++f) {
@@ -630,23 +633,18 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   }
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
-  const float attack_step = (max_attack_db_per_s > 0.0 && sr > 0)
-                            ? static_cast<float>(max_attack_db_per_s / static_cast<double>(sr))
-                            : std::numeric_limits<float>::infinity();
+  const float attack_step  = static_cast<float>(max_attack_db_per_s / static_cast<double>(sr));
   std::vector<float> att(frames, 0.f);
   if (frames > 0) {
     att[frames - 1] = req[frames - 1];
     for (size_t i = frames - 1; i-- > 0; ) {
       float prev = att[i + 1] - attack_step; // allowable attenuation one sample earlier
-      if (!std::isfinite(prev)) prev = 0.f;
       att[i] = std::max(req[i], prev);
     }
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
-  const float release_step = (max_release_db_per_s > 0.0 && sr > 0)
-                             ? static_cast<float>(max_release_db_per_s / static_cast<double>(sr))
-                             : std::numeric_limits<float>::infinity();
+  const float release_step = static_cast<float>(max_release_db_per_s / static_cast<double>(sr));
   float y = 0.f;
   for (size_t i = 0; i < frames; ++i) {
     if (i == 0) y = att[0];
@@ -654,10 +652,9 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     att[i] = std::max(0.f, y);
   }
 
-  // 4) Apply gain: g = 10^(-att_dB/20) clamped to [0,1]
+  // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
-    float g = std::pow(10.0f, -0.05f * att[f]);
-    if (!(g >= 0.f && g <= 1.f) || !std::isfinite(g)) g = 1.f;
+    float g = std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
     for (size_t c = 0; c < ch; ++c) {
       buf.audio[f, c] *= g;
     }
