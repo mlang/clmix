@@ -1630,19 +1630,42 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("random", "random - build mix from all trackdb entries in random order", [&](std::span<const std::string>){
+  repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags", [&](std::span<const std::string> args){
     if (g_db.items.empty()) {
       std::cerr << "Track DB is empty.\n";
       return;
     }
+
+    // Build matcher: empty args => match everything
+    Matcher matcher;
+    if (!args.empty()) {
+      std::string expr;
+      for (size_t i = 0; i < args.size(); ++i) {
+        if (i) expr.push_back(' ');
+        expr += args[i];
+      }
+      try {
+        matcher = Matcher::parse(expr);
+      } catch (const std::exception& e) {
+        std::cerr << "Invalid tag expression: " << e.what() << "\n";
+        return;
+      }
+    }
+
     std::vector<std::filesystem::path> all;
     all.reserve(g_db.items.size());
     for (const auto& kv : g_db.items) {
       const TrackInfo& ti = kv.second;
-      if (!ti.cue_bars.empty()) all.push_back(ti.filename);
+      if (!ti.cue_bars.empty() && matcher(ti)) {
+        all.push_back(ti.filename);
+      }
     }
     if (all.empty()) {
-      std::cerr << "No tracks with cues in DB.\n";
+      if (args.empty()) {
+        std::cerr << "No tracks with cues in DB.\n";
+      } else {
+        std::cerr << "No tracks with cues matching tag expression.\n";
+      }
       return;
     }
     std::mt19937 rng(std::random_device{}());
