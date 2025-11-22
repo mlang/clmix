@@ -1368,6 +1368,51 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
     std::cout << "\n";
   });
 
+  sub.register_command("tags", "List tags for this track", [&](std::span<const std::string>){
+    if (ti.tags.empty()) {
+      std::cout << "(no tags)\n";
+      return;
+    }
+    bool first = true;
+    for (const auto& tag : ti.tags) {
+      if (!first) std::cout << ", ";
+      std::cout << tag;
+      first = false;
+    }
+    std::cout << "\n";
+  });
+
+  sub.register_command("tag", "tag <name> - add a tag to this track", [&](std::span<const std::string> a){
+    if (a.size() != 1) {
+      std::cerr << "Usage: tag <name>\n";
+      return;
+    }
+    std::string name = a[0];
+    auto first = std::find_if_not(name.begin(), name.end(),
+                                  [](unsigned char c){ return std::isspace(c); });
+    auto last  = std::find_if_not(name.rbegin(), name.rend(),
+                                  [](unsigned char c){ return std::isspace(c); }).base();
+    if (first >= last) {
+      std::cerr << "Empty tag name.\n";
+      return;
+    }
+    std::string trimmed(first, last);
+    if (trimmed.empty()) {
+      std::cerr << "Empty tag name.\n";
+      return;
+    }
+    ti.tags.insert(trimmed);
+    dirty = true;
+    std::cout << "Tags: ";
+    bool firstOut = true;
+    for (const auto& tag : ti.tags) {
+      if (!firstOut) std::cout << ", ";
+      std::cout << tag;
+      firstOut = false;
+    }
+    std::cout << "\n";
+  });
+
   register_volume_command(sub, "Track");
 
   sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](std::span<const std::string>){
@@ -1620,7 +1665,7 @@ int main(int argc, char** argv)
     }
   });
 
-  repl.register_command("cue", "List all cue points in current mix", [&](std::span<const std::string>){
+  repl.register_command("cues", "List all cue points in current mix", [&](std::span<const std::string>){
     if (g_mix_cues.empty()) {
       std::cout << "(no cues)\n";
       return;
@@ -1628,6 +1673,24 @@ int main(int argc, char** argv)
     for (const auto& c : g_mix_cues) {
       std::cout << "bar " << c.bar << "\n";
     }
+  });
+
+  repl.register_command("tags", "List all tags present in track DB", [&](std::span<const std::string>){
+    std::set<std::string> all;
+    for (const auto& [path, ti] : g_db.items) {
+      all.insert(ti.tags.begin(), ti.tags.end());
+    }
+    if (all.empty()) {
+      std::cout << "(no tags)\n";
+      return;
+    }
+    bool first = true;
+    for (const auto& tag : all) {
+      if (!first) std::cout << ", ";
+      std::cout << tag;
+      first = false;
+    }
+    std::cout << "\n";
   });
 
   repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags", [&](std::span<const std::string> args){
