@@ -314,13 +314,19 @@ class Matcher {
     struct Not    { Ptr child; };
     struct And    { Ptr lhs; Ptr rhs; };
     struct Or     { Ptr lhs; Ptr rhs; };
+    struct Compare {
+      enum class Op { LT, LE, GT, GE, EQ };
+      Op op;
+      double value; // BPM value
+    };
 
-    std::variant<Symbol, Not, And, Or> v;
+    std::variant<Symbol, Not, And, Or, Compare> v;
 
     explicit Node(Symbol s) : v(std::move(s)) {}
     explicit Node(Not n)     : v(std::move(n)) {}
     explicit Node(And a)     : v(std::move(a)) {}
     explicit Node(Or o)      : v(std::move(o)) {}
+    explicit Node(Compare c) : v(std::move(c)) {}
   };
 
   Ptr root_;
@@ -336,9 +342,19 @@ class Matcher {
       } else if constexpr (std::is_same_v<T, Node::And>) {
         if (!eval_node(*node.lhs, ti)) return false; // short-circuit
         return eval_node(*node.rhs, ti);
-      } else { // Or
+      } else if constexpr (std::is_same_v<T, Node::Or>) {
         if (eval_node(*node.lhs, ti)) return true;   // short-circuit
         return eval_node(*node.rhs, ti);
+      } else if constexpr (std::is_same_v<T, Node::Compare>) {
+        const double bpm = ti.bpm;
+        switch (node.op) {
+          case Node::Compare::Op::LT: return bpm <  node.value;
+          case Node::Compare::Op::LE: return bpm <= node.value;
+          case Node::Compare::Op::GT: return bpm >  node.value;
+          case Node::Compare::Op::GE: return bpm >= node.value;
+          case Node::Compare::Op::EQ: return bpm == node.value;
+        }
+        return false;
       }
     }, n.v);
   }
@@ -368,6 +384,7 @@ public:
 
   // Parse from a string with operators: ~ (NOT), & (AND), | (OR), and parentheses.
   // Precedence: ~ > & > |
+  // Also supports BPM comparisons like ">=140bpm & <150bpm".
   static Matcher parse(std::string_view input) {
     struct Parser {
       std::string_view s;
@@ -399,6 +416,93 @@ public:
         err.append(std::string(s.substr(start, end - start)));
         err.push_back('\'');
         throw std::invalid_argument(err);
+      }
+
+      // Try to parse a comparison operator: <, <=, >, >=, ==.
+      bool parse_cmp_op(Node::Compare::Op& op) {
+        skip_ws();
+        if (i >= s.size()) return false;
+        char c = s[i];
+        if (c == '<') {
+          if (i + 1 < s.size() && s[i + 1] == '=') {
+            op = Node::Compare::Op::LE;
+            i += 2;
+          } else {
+            op = Node::Compare::Op::LT;
+            ++i;
+          }
+          return true;
+        }
+        if (c == '>') {
+          if (i + 1 < s.size() && s[i + 1] == '=') {
+            op = Node::Compare::Op::GE;
+            i += 2;
+          } else {
+            op = Node::Compare::Op::GT;
+            ++i;
+          }
+          return true;
+        }
+        if (c == '=') {
+          if (i + 1 < s.size() && s[i + 1] == '=') {
+            op = Node::Compare::Op::EQ;
+            i += 2;
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // Try to parse a numeric bpm literal: <number>bpm (case-insensitive).
+      bool parse_bpm_literal(double& value) {
+        skip_ws();
+        size_t start_num = i;
+        bool seen_digit = false;
+
+        // integer part
+        while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) {
+          seen_digit = true;
+          ++i;
+        }
+        // optional fractional part
+        if (i < s.size() && s[i] == '.') {
+          ++i;
+          while (i < s.size() && std::isdigit(static_cast<unsigned char>(s[i]))) {
+            seen_digit = true;
+            ++i;
+          }
+        }
+        if (!seen_digit) {
+          i = start_num;
+          return false;
+        }
+
+        std::string num_str(s.substr(start_num, i - start_num));
+        double v{};
+        auto res = std::from_chars(num_str.data(), num_str.data() + num_str.size(), v);
+        if (res.ec != std::errc{}) {
+          i = start_num;
+          return false;
+        }
+
+        auto match_suffix = [&](std::string_view suf) {
+          if (i + suf.size() > s.size()) return false;
+          for (size_t k = 0; k < suf.size(); ++k) {
+            char c1 = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i + k])));
+            char c2 = suf[k];
+            if (c1 != c2) return false;
+          }
+          i += suf.size();
+          return true;
+        };
+
+        if (!match_suffix("bpm")) {
+          i = start_num;
+          return false;
+        }
+
+        value = v;
+        return true;
       }
 
       Matcher parse_expr() {
@@ -440,11 +544,38 @@ public:
           return e;
         }
         if (i >= s.size()) error("unexpected end of input");
-        if (!is_ident_char(s[i])) error("expected identifier");
+
+        // Try comparison: <op> <number>bpm
+        {
+          Node::Compare::Op op;
+          size_t save = i;
+          if (parse_cmp_op(op)) {
+            double bpm_value{};
+            if (!parse_bpm_literal(bpm_value)) {
+              error("expected <number>bpm after comparison operator");
+            }
+            Node::Compare cmp{op, bpm_value};
+            return Matcher(std::make_shared<Node>(std::move(cmp)));
+          }
+          i = save;
+        }
+
+        // Otherwise, parse identifier/tag
+        if (!is_ident_char(s[i])) error("expected identifier or comparison");
 
         const size_t start = i;
         while (i < s.size() && is_ident_char(s[i])) ++i;
         std::string name(s.substr(start, i - start));
+
+        // Restrict tags starting with digits: must be all digits
+        if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
+          bool all_digits = std::all_of(name.begin(), name.end(),
+                                        [](unsigned char c){ return std::isdigit(c); });
+          if (!all_digits) {
+            error("tag names starting with a digit must contain only digits");
+          }
+        }
+
         return Matcher::tag(std::move(name));
       }
     };
@@ -1762,7 +1893,7 @@ int main(int argc, char** argv)
     std::cout << "\n";
   });
 
-  repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags", [&](std::span<const std::string> args){
+  repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags or bpm (e.g. \">=140bpm & <150bpm\")", [&](std::span<const std::string> args){
     if (g_db.items.empty()) {
       std::cerr << "Track DB is empty.\n";
       return;
