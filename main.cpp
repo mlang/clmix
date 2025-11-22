@@ -169,15 +169,18 @@ public:
   uint32_t to_rate,
   int converter_type
 ) {
-  const std::size_t channels = in.channels();
+  const std::size_t channels     = in.channels();
   const std::size_t in_frames_sz = in.frames();
 
-  if (channels == 0 || in_frames_sz == 0)
-    return {};
+  // Our invariants: we control all call sites.
+  assert(channels > 0);
+  assert(in_frames_sz > 0);
+  assert(from_bpm > 0.0);
+  assert(to_bpm   > 0.0);
+  assert(in.sample_rate > 0);
+  assert(to_rate        > 0);
 
-  if (from_bpm <= 0.0 || to_bpm <= 0.0 || in.sample_rate == 0 || to_rate == 0)
-    throw std::invalid_argument("BPM and sample rates must be positive.");
-
+  // libsamplerate constraints: still throw on overflow.
   if (!std::in_range<long>(in_frames_sz))
     throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
 
@@ -190,29 +193,33 @@ public:
       (static_cast<double>(to_rate) / static_cast<double>(in.sample_rate)) *
       (from_bpm / to_bpm);
 
-  if (!(ratio > 0.0) || !std::isfinite(ratio))
-    throw std::invalid_argument("Invalid resampling ratio derived from inputs.");
+  // With valid inputs, ratio must be finite and > 0.
+  assert(ratio > 0.0);
+  assert(std::isfinite(ratio));
 
   // Estimate output frames (add 1 for safety).
   const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
-  if (!std::in_range<long>(static_cast<std::size_t>(est_out_frames_d)))
+  const auto   est_out_frames_sz = static_cast<std::size_t>(est_out_frames_d);
+
+  if (!std::in_range<long>(est_out_frames_sz))
     throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
-  Interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
-
-  SRC_DATA data{};
-  data.data_in = in.data();
-  data.data_out = out.data();
-  data.input_frames = in_frames;
-  data.output_frames = out_frames_est;
-  data.end_of_input = 1;
-  data.src_ratio = ratio;
-
+  // libsamplerate channel constraint: still throw.
   if (!std::in_range<int>(channels))
     throw std::invalid_argument("Channel count too large for libsamplerate.");
   const auto ch = static_cast<int>(channels);
+
+  Interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
+
+  SRC_DATA data{};
+  data.data_in       = in.data();
+  data.data_out      = out.data();
+  data.input_frames  = in_frames;
+  data.output_frames = out_frames_est;
+  data.end_of_input  = 1;
+  data.src_ratio     = ratio;
 
   const int err = src_simple(&data, converter_type, ch);
   if (err != 0)
