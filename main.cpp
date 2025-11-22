@@ -1919,6 +1919,62 @@ int main(int argc, char** argv)
     std::cout << "\n";
   });
 
+  repl.register_command("list",
+    "list [tag_expr] - list tracks in DB matching tag/bpm expression "
+    "(e.g. \">=140bpm & <150bpm | techno\")",
+    [&](std::span<const std::string> args){
+      if (g_db.items.empty()) {
+        std::println(std::cerr, "Track DB is empty.");
+        return;
+      }
+
+      // Build matcher: empty args => match everything
+      Matcher matcher;
+      if (!args.empty()) {
+        std::string expr;
+        for (size_t i = 0; i < args.size(); ++i) {
+          if (i) expr.push_back(' ');
+          expr += args[i];
+        }
+        try {
+          matcher = Matcher::parse(expr);
+        } catch (const std::exception& e) {
+          std::println(std::cerr, "Invalid tag expression: {}", e.what());
+          return;
+        }
+      }
+
+      std::size_t count = 0;
+      for (const auto& [path, ti] : g_db.items) {
+        if (!ti.cue_bars.empty() && matcher(ti)) {
+          ++count;
+          std::cout << std::setw(3) << count << ". "
+                    << path.generic_string()
+                    << "  |  BPM: " << std::fixed << std::setprecision(2) << ti.bpm
+                    << "  |  Tags: ";
+          if (ti.tags.empty()) {
+            std::cout << "(none)";
+          } else {
+            bool first = true;
+            for (const auto& tag : ti.tags) {
+              if (!first) std::cout << ", ";
+              std::cout << tag;
+              first = false;
+            }
+          }
+          std::cout << "\n";
+        }
+      }
+
+      if (count == 0) {
+        if (args.empty()) {
+          std::println(std::cout, "(no tracks with cues in DB)");
+        } else {
+          std::println(std::cout, "(no tracks matching expression)");
+        }
+      }
+    });
+
   repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags or bpm (e.g. \">=140bpm & <150bpm\")", [&](std::span<const std::string> args){
     if (g_db.items.empty()) {
       std::println(std::cerr, "Track DB is empty.");
