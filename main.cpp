@@ -41,6 +41,7 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <cstring> // for std::memcpy
 
 #include "vendor/mdspan.hpp"
 
@@ -1475,6 +1476,62 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   g_player.playing.store(false);
 }
 
+// Readline completion for track-info filenames (supports spaces via quoting)
+char** clmix_completion(const char* text, int start, int end) {
+  (void)end;
+
+  const char* line = rl_line_buffer;
+
+  // Extract the first word (command) from the line up to 'start'
+  std::string_view sv(line, static_cast<size_t>(start));
+  auto it = std::find_if_not(sv.begin(), sv.end(),
+                             [](unsigned char c){ return std::isspace(c); });
+  if (it == sv.end()) {
+    return nullptr;
+  }
+  auto cmd_start = it;
+  auto cmd_end = std::find_if(cmd_start, sv.end(),
+                              [](unsigned char c){ return std::isspace(c); });
+  std::string cmd(cmd_start, cmd_end);
+
+  // Only provide custom completion for the first argument of "track-info"
+  if (cmd != "track-info") {
+    return nullptr;
+  }
+
+  // Generator that iterates over g_db.items and returns matching filenames.
+  auto generator = [](const char* text, int state) -> char* {
+    static std::vector<std::string> matches;
+    static size_t index;
+
+    if (state == 0) {
+      matches.clear();
+      index = 0;
+
+      std::string prefix(text);
+      for (const auto& [path, ti] : g_db.items) {
+        (void)ti;
+        const std::string name = path.generic_string();
+        if (name.starts_with(prefix)) {
+          matches.push_back(name);
+        }
+      }
+    }
+
+    if (index >= matches.size()) {
+      return nullptr;
+    }
+
+    const std::string& s = matches[index++];
+    char* out = static_cast<char*>(std::malloc(s.size() + 1));
+    if (!out) return nullptr;
+    std::memcpy(out, s.c_str(), s.size() + 1);
+    return out;
+  };
+
+  return rl_completion_matches(text, generator);
+}
+
 }
 
 int main(int argc, char** argv)
@@ -1511,6 +1568,11 @@ int main(int argc, char** argv)
   g_device_channels = device.playback.channels;
 
   g_db.load(trackdb_path);
+
+  // Set up readline completion for track-info filenames (with quoting)
+  rl_attempted_completion_function = clmix_completion;
+  // Reasonable shell-like word breaks; Readline will respect quotes when completing.
+  rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
 
   REPL repl;
 
