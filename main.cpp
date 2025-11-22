@@ -35,9 +35,11 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sstream>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "vendor/mdspan.hpp"
@@ -295,9 +297,164 @@ struct TrackInfo {
   std::set<std::string> tags; // unique tags
 };
 
- // Simple text DB:
- // Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <upbeat_beats> <space> <time_offset_sec> <space> <cues_csv_or_-> <space> <tags_csv_or_->
- // Lines starting with '#' or blank lines are ignored.
+class Matcher {
+  struct Node;
+  using Ptr = std::shared_ptr<const Node>;
+
+  struct Node {
+    struct Symbol { std::string name; };
+    struct Not    { Ptr child; };
+    struct And    { Ptr lhs; Ptr rhs; };
+    struct Or     { Ptr lhs; Ptr rhs; };
+
+    std::variant<Symbol, Not, And, Or> v;
+
+    explicit Node(Symbol s) : v(std::move(s)) {}
+    explicit Node(Not n)     : v(std::move(n)) {}
+    explicit Node(And a)     : v(std::move(a)) {}
+    explicit Node(Or o)      : v(std::move(o)) {}
+  };
+
+  Ptr root_;
+  explicit Matcher(Ptr p) : root_(std::move(p)) {}
+
+  static bool eval_node(const Node& n, const TrackInfo& ti) {
+    return std::visit([&](const auto& node) -> bool {
+      using T = std::decay_t<decltype(node)>;
+      if constexpr (std::is_same_v<T, Node::Symbol>) {
+        return ti.tags.contains(node.name);
+      } else if constexpr (std::is_same_v<T, Node::Not>) {
+        return !eval_node(*node.child, ti);
+      } else if constexpr (std::is_same_v<T, Node::And>) {
+        if (!eval_node(*node.lhs, ti)) return false; // short-circuit
+        return eval_node(*node.rhs, ti);
+      } else { // Or
+        if (eval_node(*node.lhs, ti)) return true;   // short-circuit
+        return eval_node(*node.rhs, ti);
+      }
+    }, n.v);
+  }
+
+public:
+  Matcher() = default; // an empty expr; operator() returns true
+
+  // Create an atomic symbol/tag expression
+  static Matcher tag(std::string name) {
+    return Matcher(std::make_shared<Node>(Node::Symbol{std::move(name)}));
+  }
+
+  friend Matcher operator~(Matcher const &matcher)
+  { return Matcher(std::make_shared<Node>(Node::Not{matcher.root_})); }
+
+  friend Matcher operator&(Matcher const &lhs, Matcher const &rhs)
+  { return Matcher(std::make_shared<Node>(Node::And{lhs.root_, rhs.root_})); }
+
+  friend Matcher operator|(Matcher const &lhs, Matcher const &rhs)
+  { return Matcher(std::make_shared<Node>(Node::Or{lhs.root_, rhs.root_})); }
+
+  // Evaluate against a set of tags
+  bool operator()(const TrackInfo& ti) const {
+    if (!root_) return true; // empty expression is vacuously true
+    return eval_node(*root_, ti);
+  }
+
+  // Parse from a string with operators: ~ (NOT), & (AND), | (OR), and parentheses.
+  // Precedence: ~ > & > |
+  static Matcher parse(std::string_view input) {
+    struct Parser {
+      std::string_view s;
+      size_t i = 0;
+
+      void skip_ws() {
+        while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+      }
+
+      bool consume(char c) {
+        skip_ws();
+        if (i < s.size() && s[i] == c) { ++i; return true; }
+        return false;
+      }
+
+      static bool is_ident_char(char c) {
+        // Identifier chars: anything except whitespace and operators/parens
+        return !std::isspace(static_cast<unsigned char>(c))
+            && c != '|' && c != '&' && c != '~' && c != '(' && c != ')';
+      }
+
+      [[noreturn]] void error(std::string_view msg) const {
+        std::string err("Matcher parse error: ");
+        err.append(msg);
+        err.append(" at position ");
+        err.append(std::to_string(i));
+        err.append(" near '");
+        const size_t start = i, end = std::min(i + 10, s.size());
+        err.append(std::string(s.substr(start, end - start)));
+        err.push_back('\'');
+        throw std::invalid_argument(err);
+      }
+
+      Matcher parse_expr() {
+        auto lhs = parse_and();
+        skip_ws();
+        while (consume('|')) {
+          auto rhs = parse_and();
+          lhs = lhs | rhs;
+          skip_ws();
+        }
+        return lhs;
+      }
+
+      Matcher parse_and() {
+        auto lhs = parse_unary();
+        skip_ws();
+        while (consume('&')) {
+          auto rhs = parse_unary();
+          lhs = lhs & rhs;
+          skip_ws();
+        }
+        return lhs;
+      }
+
+      Matcher parse_unary() {
+        skip_ws();
+        if (consume('~')) {
+          auto child = parse_unary();
+          return ~child;
+        }
+        return parse_primary();
+      }
+
+      Matcher parse_primary() {
+        skip_ws();
+        if (consume('(')) {
+          auto e = parse_expr();
+          if (!consume(')')) error("expected ')'");
+          return e;
+        }
+        if (i >= s.size()) error("unexpected end of input");
+        if (!is_ident_char(s[i])) error("expected identifier");
+
+        const size_t start = i;
+        while (i < s.size() && is_ident_char(s[i])) ++i;
+        std::string name(s.substr(start, i - start));
+        return Matcher::tag(std::move(name));
+      }
+    };
+
+    Parser p{input};
+    auto expr = p.parse_expr();
+    p.skip_ws();
+    if (p.i != input.size()) {
+      throw std::invalid_argument(
+          "Matcher parse error: trailing input at position " + std::to_string(p.i));
+    }
+    return expr;
+  }
+};
+
+// Simple text DB:
+// Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <upbeat_beats> <space> <time_offset_sec> <space> <cues_csv_or_-> <space> <tags_csv_or_->
+// Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
   std::map<std::filesystem::path, TrackInfo> items;
 
