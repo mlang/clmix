@@ -4,6 +4,7 @@ project(CLMIX VERSION 1 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
@@ -19,7 +20,8 @@ endif()
 add_executable(clmix main.cpp)
 target_compile_definitions(clmix PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1)
 target_link_libraries(clmix
-  PRIVATE PkgConfig::Aubio
+  PRIVATE nlohmann_json::nlohmann_json
+          PkgConfig::Aubio
           PkgConfig::Readline
           PkgConfig::SampleRate
           PkgConfig::SndFile

@@ -63,6 +63,8 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+#include <nlohmann/json.hpp>
+
 namespace {
 
 constexpr float kHeadroomDB = -2.0f;
@@ -304,6 +306,10 @@ struct TrackInfo {
   std::vector<int> cue_bars; // 1-based bar numbers
   std::set<std::string> tags; // unique tags
 };
+
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TrackInfo,
+  filename, beats_per_bar, bpm, upbeat_beats, time_offset_sec, cue_bars, tags
+)
 
 class Matcher {
   struct Node;
@@ -1691,6 +1697,17 @@ int main(int argc, char** argv)
   }
   const std::filesystem::path trackdb_path = argv[1];
 
+  g_db.load(trackdb_path);
+
+  if (argc == 3 && std::string("json") == argv[2]) {
+    auto tracks = nlohmann::json::array();
+    for (auto const &[key, value]: g_db.items)
+      tracks.push_back(nlohmann::json(value));
+    const auto db = nlohmann::json({ {"version", 1}, {"tracks", tracks} });
+    std::cout << nlohmann::json(db).dump(4);
+    return 0;
+  }
+
   ma_device_config config = ma_device_config_init(ma_device_type_playback);
   config.playback.format   = ma_format_f32;
   config.playback.channels = 2;
@@ -1714,8 +1731,6 @@ int main(int argc, char** argv)
 
   g_device_rate = device.sampleRate;
   g_device_channels = device.playback.channels;
-
-  g_db.load(trackdb_path);
 
   // Set up readline completion for track-info filenames (with quoting)
   rl_attempted_completion_function = clmix_completion;
