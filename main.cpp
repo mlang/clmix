@@ -726,8 +726,10 @@ uint32_t g_device_channels = 2;
 std::vector<std::filesystem::path> g_mix_tracks;
 
 struct MixCue {
-  double frame;  // absolute cue frame in mix timeline
-  long   bar;    // 1-based global bar number in the mix
+  double frame;                 // absolute cue frame in mix timeline
+  long   bar;                   // 1-based global bar number in the mix
+  std::filesystem::path track;  // which track this cue comes from
+  int    local_bar;             // bar number within that track (1-based)
 };
 
 std::vector<MixCue> g_mix_cues;
@@ -1020,7 +1022,12 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       double beatsFromZero = mixFrame / fpb;
       long barIdx = (long)std::floor(beatsFromZero / (double)g_mix_bpb) + 1;
 
-      g_mix_cues.push_back(MixCue{mixFrame, barIdx});
+      g_mix_cues.push_back(MixCue{
+        mixFrame,
+        barIdx,
+        it.file,
+        bar
+      });
     }
   }
 
@@ -1842,11 +1849,14 @@ int main(int argc, char** argv)
 
   repl.register_command("cues", "List all cue points in current mix", [&](std::span<const std::string>){
     if (g_mix_cues.empty()) {
-      std::print(std::cout, "(no cues)");
+      std::println(std::cout, "(no cues)");
       return;
     }
     for (const auto& c : g_mix_cues) {
-      std::println(std::cout, "bar {}", c.bar);
+      auto name = c.track.filename().generic_string();
+      std::println(std::cout,
+                   "mix bar {}  |  track: {}  |  track bar {}",
+                   c.bar, name, c.local_bar);
     }
   });
 
