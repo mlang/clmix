@@ -618,148 +618,7 @@ struct TrackDB {
     items[norm(info.filename)] = info;
   }
 
-  bool load(const std::filesystem::path& dbfile) {
-    items.clear();
-    std::ifstream in(dbfile);
-    if (!in.is_open()) {
-      // Not an error if file is missing: treat as empty DB
-      return false;
-    }
-    std::string line;
-    while (std::getline(in, line)) {
-      // Trim leading spaces
-      auto it = std::find_if_not(line.begin(), line.end(),
-                                 [](unsigned char ch){ return std::isspace(ch); });
-      if (it == line.end() || *it == '#') continue; // blank or comment
-
-      std::istringstream iss(line);
-      std::string fname;
-      int beats = 0;
-      std::string bpm_tok, upbeat_tok, toffs_tok, cues_tok, tags_tok;
-
-      // Require all fields in order; skip malformed lines
-      if (!(iss >> std::ws >> std::quoted(fname)
-                >> beats >> bpm_tok >> upbeat_tok >> toffs_tok >> cues_tok)) {
-        std::println(std::cerr,
-                     "Warning: failed to parse trackdb line (missing required fields): {}",
-                     line);
-        continue;
-      }
-
-      // tags are optional; if missing, tags_tok stays empty
-      if (!(iss >> tags_tok)) {
-        tags_tok.clear();
-      }
-
-      auto bpm_v    = parse_number<double>(bpm_tok);
-      auto upbeat_v = parse_number<double>(upbeat_tok);
-      auto toffs_v  = parse_number<double>(toffs_tok);
-
-      if (!bpm_v || *bpm_v <= 0.0 || beats <= 0 || !upbeat_v || !toffs_v) {
-        std::string err;
-        if (!bpm_v)          err = "bpm: " + bpm_v.error();
-        else if (beats <= 0) err = "beats_per_bar: must be > 0";
-        else if (!upbeat_v)  err = "upbeat_beats: " + upbeat_v.error();
-        else if (!toffs_v)   err = "time_offset_sec: " + toffs_v.error();
-        else                 err = "unknown numeric error";
-
-        std::println(std::cerr,
-                     "Warning: invalid numeric fields in trackdb line ({}): {}",
-                     err, line);
-        continue;
-      }
-
-      std::vector<int> cues;
-      if (cues_tok != "-") {
-        std::stringstream ss(cues_tok);
-        std::string tok;
-        bool ok = true;
-        while (std::getline(ss, tok, ',')) {
-          auto bar = parse_number<int>(tok);
-          if (!bar || *bar <= 0) { ok = false; break; }
-          cues.push_back(*bar);
-        }
-        if (!ok) {
-          std::println(std::cerr,
-                       "Warning: invalid cue list in trackdb line: {}",
-                       line);
-          continue;
-        }
-        std::sort(cues.begin(), cues.end());
-        cues.erase(std::unique(cues.begin(), cues.end()), cues.end());
-      }
-
-      // Parse tags (optional, "-" or empty => no tags)
-      std::set<std::string> tags;
-      if (!tags_tok.empty() && tags_tok != "-") {
-        std::stringstream ss(tags_tok);
-        std::string tok;
-        while (std::getline(ss, tok, ',')) {
-          if (tok.empty()) continue;
-          // trim simple leading/trailing spaces
-          auto first = std::find_if_not(tok.begin(), tok.end(),
-                                        [](unsigned char c){ return std::isspace(c); });
-          auto last  = std::find_if_not(tok.rbegin(), tok.rend(),
-                                        [](unsigned char c){ return std::isspace(c); }).base();
-          if (first >= last) continue;
-          tags.emplace(first, last); // std::set deduplicates
-        }
-      }
-
-      TrackInfo ti;
-      ti.filename = fname;
-      ti.beats_per_bar = static_cast<unsigned>(beats);
-      ti.bpm = *bpm_v;
-      ti.upbeat_beats = *upbeat_v;
-      ti.time_offset_sec = *toffs_v;
-      ti.cue_bars = std::move(cues);
-      ti.tags = std::move(tags);
-      upsert(ti);
-    }
-    return true;
-  }
-
-  bool save(const std::filesystem::path& dbfile) const {
-    std::ofstream out(dbfile, std::ios::trunc);
-    if (!out.is_open()) {
-      return false;
-    }
-    out << "# clmix track db: \"filename\" beats_per_bar bpm upbeat_beats time_offset_sec cues_csv_or_- tags_csv_or_-\n";
-    for (const auto& [key, ti] : items) {
-      std::string cues_tok;
-      if (!ti.cue_bars.empty()) {
-        for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
-          if (i) cues_tok.push_back(',');
-          cues_tok += std::to_string(ti.cue_bars[i]);
-        }
-      } else {
-        cues_tok = "-";
-      }
-
-      std::string tags_tok;
-      if (!ti.tags.empty()) {
-        size_t i = 0;
-        for (const auto& tag : ti.tags) {
-          if (i++) tags_tok.push_back(',');
-          tags_tok += tag;
-        }
-      } else {
-        tags_tok = "-";
-      }
-
-      out << std::quoted(ti.filename.generic_string()) << ' '
-          << ti.beats_per_bar << ' '
-          << std::to_string(ti.bpm) << ' '
-          << std::to_string(ti.upbeat_beats) << ' '
-          << std::to_string(ti.time_offset_sec) << ' '
-          << cues_tok << ' '
-          << tags_tok << '\n';
-    }
-    return true;
-  }
-
-  // New JSON-based load/save; keeps legacy text format available.
-  bool load_json(const std::filesystem::path& dbfile)
+  bool load(const std::filesystem::path& dbfile)
   {
     items.clear();
 
@@ -810,7 +669,7 @@ struct TrackDB {
     return true;
   }
 
-  bool save_json(const std::filesystem::path& dbfile) const
+  bool save(const std::filesystem::path& dbfile) const
   {
     auto tracks = json::array();
     for (const auto& [key, ti] : items) {
@@ -1782,11 +1641,6 @@ int main(int argc, char** argv)
   const std::filesystem::path trackdb_path = argv[1];
 
   g_db.load(trackdb_path);
-
-  if (argc == 3) {
-    g_db.save_json(argv[2]);
-    return 0;
-  }
 
   ma_device_config config = ma_device_config_init(ma_device_type_playback);
   config.playback.format   = ma_format_f32;
