@@ -67,6 +67,8 @@ extern "C" {
 
 namespace {
 
+using nlohmann::json;
+
 constexpr float kHeadroomDB = -2.0f;
 
 template<std::floating_point T>
@@ -757,7 +759,8 @@ struct TrackDB {
   }
 
   // New JSON-based load/save; keeps legacy text format available.
-  bool load_json(const std::filesystem::path& dbfile) {
+  bool load_json(const std::filesystem::path& dbfile)
+  {
     items.clear();
 
     std::ifstream in(dbfile);
@@ -766,7 +769,7 @@ struct TrackDB {
       return false;
     }
 
-    nlohmann::json j;
+    json j;
     try {
       in >> j;
     } catch (const std::exception& e) {
@@ -796,10 +799,7 @@ struct TrackDB {
     }
 
     try {
-      for (const auto& jt : j["tracks"]) {
-        TrackInfo ti = jt.get<TrackInfo>();
-        upsert(ti);
-      }
+      for (const auto& jti : j["tracks"]) upsert(jti.get<TrackInfo>());
     } catch (const std::exception& e) {
       std::println(std::cerr, "Error decoding TrackInfo from JSON '{}': {}",
                    dbfile.generic_string(), e.what());
@@ -810,14 +810,14 @@ struct TrackDB {
     return true;
   }
 
-  bool save_json(const std::filesystem::path& dbfile) const {
-    nlohmann::json tracks = nlohmann::json::array();
+  bool save_json(const std::filesystem::path& dbfile) const
+  {
+    auto tracks = json::array();
     for (const auto& [key, ti] : items) {
-      (void)key;
-      tracks.push_back(nlohmann::json(ti));
+      tracks.push_back(json(ti));
     }
 
-    nlohmann::json root = {
+    json root = {
       {"version", 1},
       {"tracks", std::move(tracks)}
     };
@@ -1783,12 +1783,8 @@ int main(int argc, char** argv)
 
   g_db.load(trackdb_path);
 
-  if (argc == 3 && std::string("json") == argv[2]) {
-    auto tracks = nlohmann::json::array();
-    for (auto const &[key, value]: g_db.items)
-      tracks.push_back(nlohmann::json(value));
-    const auto db = nlohmann::json({ {"version", 1}, {"tracks", tracks} });
-    std::cout << nlohmann::json(db).dump(4);
+  if (argc == 3) {
+    g_db.save_json(argv[2]);
     return 0;
   }
 
