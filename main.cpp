@@ -755,6 +755,90 @@ struct TrackDB {
     }
     return true;
   }
+
+  // New JSON-based load/save; keeps legacy text format available.
+  bool load_json(const std::filesystem::path& dbfile) {
+    items.clear();
+
+    std::ifstream in(dbfile);
+    if (!in.is_open()) {
+      // Missing file => treat as empty DB, like load()
+      return false;
+    }
+
+    nlohmann::json j;
+    try {
+      in >> j;
+    } catch (const std::exception& e) {
+      std::println(std::cerr, "Failed to parse JSON trackdb '{}': {}",
+                   dbfile.generic_string(), e.what());
+      return false;
+    }
+
+    if (!j.is_object()) {
+      std::println(std::cerr, "Invalid JSON trackdb '{}': root is not an object",
+                   dbfile.generic_string());
+      return false;
+    }
+
+    // Version is optional but recommended; currently we only support 1.
+    int version = j.value("version", 1);
+    if (version != 1) {
+      std::println(std::cerr, "Unsupported trackdb JSON version {} in '{}'",
+                   version, dbfile.generic_string());
+      return false;
+    }
+
+    if (!j.contains("tracks") || !j["tracks"].is_array()) {
+      std::println(std::cerr, "Invalid JSON trackdb '{}': missing 'tracks' array",
+                   dbfile.generic_string());
+      return false;
+    }
+
+    try {
+      for (const auto& jt : j["tracks"]) {
+        TrackInfo ti = jt.get<TrackInfo>();
+        upsert(ti);
+      }
+    } catch (const std::exception& e) {
+      std::println(std::cerr, "Error decoding TrackInfo from JSON '{}': {}",
+                   dbfile.generic_string(), e.what());
+      items.clear();
+      return false;
+    }
+
+    return true;
+  }
+
+  bool save_json(const std::filesystem::path& dbfile) const {
+    nlohmann::json tracks = nlohmann::json::array();
+    for (const auto& [key, ti] : items) {
+      (void)key;
+      tracks.push_back(nlohmann::json(ti));
+    }
+
+    nlohmann::json root = {
+      {"version", 1},
+      {"tracks", std::move(tracks)}
+    };
+
+    std::ofstream out(dbfile, std::ios::trunc);
+    if (!out.is_open()) {
+      std::println(std::cerr, "Failed to open JSON trackdb for writing: {}",
+                   dbfile.generic_string());
+      return false;
+    }
+
+    try {
+      out << root.dump(2); // pretty-print with 2-space indent
+    } catch (const std::exception& e) {
+      std::println(std::cerr, "Failed to write JSON trackdb '{}': {}",
+                   dbfile.generic_string(), e.what());
+      return false;
+    }
+
+    return true;
+  }
 };
 
 struct PlayerState {
