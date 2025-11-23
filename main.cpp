@@ -823,8 +823,9 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   assert(max_attack_db_per_s > 0.0f);
   assert(max_release_db_per_s > 0.0f);
 
-  // 1) Required attenuation (dB) to meet ceiling at each frame (computed on demand)
-  auto required_att_dB = [&](size_t f) -> float {
+  // 1) Required gain (dB) to meet ceiling at each frame.
+  // gain_dB <= 0: 0 dB = unity, negative = attenuation.
+  auto required_gain_dB = [&](size_t f) -> float {
     float pk = 0.f;
     for (size_t c = 0; c < ch; ++c) {
       float v = buf.audio[f, c];
@@ -832,27 +833,39 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       v = std::fabs(v);
       if (v > pk) pk = v;
     }
-    // attenuation needed in dB (>= 0)
-    return (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
+    if (pk <= 0.f) return 0.f; // silence => no attenuation needed
+
+    const float pk_dB = ampdb(pk);
+    // If pk <= ceiling, we can stay at 0 dB; otherwise attenuate.
+    const float needed = ceiling_dB - pk_dB; // <= 0 when attenuation is needed
+    return std::min(0.f, needed);
   };
 
-  // 2) Backward pass: limit how fast attenuation may increase (attack slope)
-  const float attack_step  = max_attack_db_per_s / static_cast<float>(sr);
-  std::vector<float> att(frames, 0.f);
-  att[frames - 1] = required_att_dB(frames - 1);
+  // 2) Backward pass: limit how fast attenuation may increase (attack slope).
+  // We work in gain_dB (<= 0). More negative = more attenuation.
+  const float attack_step = max_attack_db_per_s / static_cast<float>(sr);
+  std::vector<float> gain_dB(frames, 0.f);
+  gain_dB[frames - 1] = required_gain_dB(frames - 1);
   for (size_t i = frames - 1; i-- > 0; ) {
-    att[i] = std::max(required_att_dB(i), att[i + 1] - attack_step);
+    const float req = required_gain_dB(i);
+    // We cannot increase attenuation faster than attack_step per sample:
+    // i.e. gain_dB[i] >= gain_dB[i+1] - attack_step (remember both are <= 0).
+    const float max_att_change = gain_dB[i + 1] - attack_step;
+    gain_dB[i] = std::max(req, max_att_change);
   }
 
-  // 3) Forward pass: limit how fast attenuation may decrease (release slope)
+  // 3) Forward pass: limit how fast attenuation may decrease (release slope).
   const float release_step = max_release_db_per_s / static_cast<float>(sr);
   for (size_t i = 1; i < frames; ++i) {
-    att[i] = std::max(att[i], att[i - 1] - release_step);
+    // We cannot release faster than release_step per sample:
+    // i.e. gain_dB[i] <= gain_dB[i-1] + release_step.
+    const float max_release = gain_dB[i - 1] + release_step;
+    gain_dB[i] = std::min(gain_dB[i], max_release);
   }
 
-  // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
+  // 4) Apply gain: g = dbamp(gain_dB) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
-    float g = std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
+    float g = std::clamp(dbamp(gain_dB[f]), 0.0f, 1.0f);
     for (size_t c = 0; c < ch; ++c) {
       buf.audio[f, c] *= g;
     }
