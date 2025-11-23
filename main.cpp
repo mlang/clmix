@@ -599,9 +599,6 @@ public:
   }
 };
 
-// Simple text DB:
-// Each line: "filename with quotes" <space> <beats_per_bar> <space> <bpm> <space> <upbeat_beats> <space> <time_offset_sec> <space> <cues_csv_or_-> <space> <tags_csv_or_->
-// Lines starting with '#' or blank lines are ignored.
 struct TrackDB {
   std::map<std::filesystem::path, TrackInfo> items;
 
