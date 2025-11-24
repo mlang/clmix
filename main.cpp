@@ -1040,7 +1040,6 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     }
   };
 
-
   // Mix down to out channels
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
@@ -1048,7 +1047,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
-      size_t outF = (size_t)absF;
+      auto outF = static_cast<size_t>(absF);
       if (outF >= totalFrames) break;
       float a = env(f, it.res.frames(), it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
