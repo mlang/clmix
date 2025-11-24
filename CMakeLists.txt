@@ -17,12 +17,17 @@ if (NOT HAVE_MINIAUDIO_H)
   message(FATAL_ERROR "miniaudio.h not found. Install miniaudio or add its include directory to the build (e.g. set CMAKE_INCLUDE_PATH or use target_include_directories).")
 endif()
 
+find_package(TBB REQUIRED QUIET CONFIG)
 add_executable(clmix main.cpp)
-target_compile_definitions(clmix PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1)
+target_compile_definitions(clmix
+  PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1
+          _GLIBCXX_USE_TBB_PAR_BACKEND
+)
 target_link_libraries(clmix
   PRIVATE nlohmann_json::nlohmann_json
           PkgConfig::Aubio
           PkgConfig::Readline
           PkgConfig::SampleRate
           PkgConfig::SndFile
+          TBB::tbb
 )

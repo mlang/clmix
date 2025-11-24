@@ -14,6 +14,7 @@
 #include <deque>
 #include <cstdlib>
 #include <cstdint>
+#include <execution>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -920,24 +921,28 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 ) {
   if (files.empty()) return {};
 
+  struct Track {
+    std::filesystem::path filename;
+    TrackInfo ti;
+  };
   // Collect TrackInfo and ensure cues exist
-  std::vector<TrackInfo> tis;
-  tis.reserve(files.size());
+  std::vector<Track> tracks;
+  tracks.reserve(files.size());
   for (auto& f : files) {
     auto* ti = g_db.find(f);
     if (!ti || ti->cue_bars.empty()) {
       throw std::runtime_error("Track missing in DB or has no cues: " + f.generic_string());
     }
-    tis.push_back(*ti);
+    tracks.push_back(Track{f, *ti});
   }
 
   // Mix BPM default: mean of track bpms (unless forced)
   auto bpm = force_bpm.value_or([&]{
-    const auto bpms = tis | std::views::transform(&TrackInfo::bpm);
-    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / static_cast<double>(tis.size());
+    const auto bpms = tracks | std::views::transform([](Track const &track) { return track.ti.bpm; });
+    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / static_cast<double>(tracks.size());
   }());
   g_mix_bpm = bpm;
-  g_mix_bpb = tis.front().beats_per_bar;
+  g_mix_bpb = tracks.front().ti.beats_per_bar;
 
   const uint32_t outRate = g_device_rate;
   if (!std::in_range<int>(g_device_channels))
@@ -953,18 +958,12 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     double lastCue;
     double offset;
   };
-  std::vector<Item> items;
-  items.reserve(files.size());
+  std::vector<Item> items(files.size());
 
   // Parallel per-track processing with std::async (exceptions propagate via future::get)
-  std::vector<std::future<Item>> futs;
-  futs.reserve(files.size());
-
-  for (size_t i = 0; i < files.size(); ++i) {
-    futs.push_back(std::async(std::launch::async, [&, i]() -> Item {
-      Interleaved<float> t = load_track(files[i]);
-      const auto& ti = tis[i];
-
+  std::transform(std::execution::par, tracks.begin(), tracks.end(), items.begin(),
+    [&](Track const& track) {
+      Interleaved<float> t = load_track(track.filename);
       {
         const float targetHeadroom = dbamp(kHeadroomDB);
         const float peak = t.peak();
@@ -973,14 +972,14 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         }
       }
 
-      auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
+      auto res = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
       size_t frames = res.frames();
 
-      int firstBar = ti.cue_bars.front();
-      int lastBar  = ti.cue_bars.back();
-      double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
-      double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
-      double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
+      int firstBar = track.ti.cue_bars.front();
+      int lastBar  = track.ti.cue_bars.back();
+      double shiftOut = track.ti.upbeat_beats * fpb + track.ti.time_offset_sec * (double)outRate;
+      double firstCue = shiftOut + (double)(firstBar - 1) * (double)track.ti.beats_per_bar * fpb;
+      double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)track.ti.beats_per_bar * fpb;
 
       // Clamp
       if (frames == 0) { firstCue = lastCue = 0.0; }
@@ -989,13 +988,9 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
       }
 
-      return Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 };
-    }));
-  }
-
-  for (auto& f : futs) {
-    items.push_back(f.get());
-  }
+      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0 };
+    }
+  );
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
@@ -1052,6 +1047,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         (*out)[outF, ch] += a * it.res[f, sC];
       }
     }
+    it.res = Interleaved<float>();
   }
 
   // Final offline two-pass limiter for transparent ceiling control
