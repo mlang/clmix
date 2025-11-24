@@ -883,8 +883,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 {
   const uint32_t sr = buf.sample_rate;
   const size_t frames = buf.frames();
-  const size_t ch = buf.channels();
-  if (sr == 0 || frames == 0 || ch == 0) return;
+  if (sr == 0 || frames == 0) return;
 
   assert(max_attack_db_per_s > 0.0f);
   assert(max_release_db_per_s > 0.0f);
@@ -912,8 +911,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
-    float g = std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
-    buf[f] *= g;
+    buf[f] *= std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
   }
 }
 
