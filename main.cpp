@@ -125,13 +125,8 @@ public:
   Interleaved() = default;
 
   Interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
-    : storage(frames * ch),
-      frames_(frames),
-      channels_(ch),
-      sample_rate(sr)
-  {
-    assert(ch > 0);
-  }
+  : storage(frames * ch), frames_(frames), channels_(ch), sample_rate(sr)
+  { assert(ch > 0); }
 
   // move-only
   Interleaved(const Interleaved&) = delete;
@@ -186,7 +181,7 @@ public:
   class ConstFrameView : public FrameViewBase<const T> {
   public:
     ConstFrameView(const T* row, std::size_t ch)
-      : FrameViewBase<const T>(row, ch) {}
+    : FrameViewBase<const T>(row, ch) {}
   };
 
   // 2D element access via multi-arg operator[]
