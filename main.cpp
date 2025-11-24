@@ -2068,6 +2068,8 @@ int main(int argc, char** argv)
     try {
       // Stop playback to avoid concurrent access while rendering/exporting
       g_player.playing.store(false);
+      // Release any existing mix from the player to avoid holding two copies in RAM
+      g_player.track.reset();
 
       // Rebuild a fresh mix with current BPM and tracks
       auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
