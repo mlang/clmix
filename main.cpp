@@ -116,15 +116,22 @@ requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
 template<typename T>
 class Interleaved {
   std::vector<T> storage;
+  std::size_t frames_   = 0;
+  std::size_t channels_ = 0;
+
 public:
   uint32_t sample_rate = 0;
-  multichannel<T> audio{}; // non-ownning view over 'storage'
 
   Interleaved() = default;
 
   Interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
-  : sample_rate(sr), storage(frames * ch), audio(storage.data(), frames, ch)
-  { assert(ch > 0); }
+    : storage(frames * ch),
+      frames_(frames),
+      channels_(ch),
+      sample_rate(sr)
+  {
+    assert(ch > 0);
+  }
 
   // move-only
   Interleaved(const Interleaved&) = delete;
@@ -133,11 +140,74 @@ public:
   Interleaved(Interleaved&&) noexcept = default;
   Interleaved& operator=(Interleaved&&) noexcept = default;
 
-  [[nodiscard]] std::size_t frames() const noexcept { return audio.extent(0); }
-  [[nodiscard]] std::size_t channels() const noexcept { return audio.extent(1); }
-  [[nodiscard]] std::size_t samples() const noexcept { return frames() * channels(); }
-  [[nodiscard]] T* data() noexcept { return storage.data(); }
+  [[nodiscard]] std::size_t frames()   const noexcept { return frames_; }
+  [[nodiscard]] std::size_t channels() const noexcept { return channels_; }
+  [[nodiscard]] std::size_t samples()  const noexcept { return storage.size(); }
+  [[nodiscard]] T*       data()       noexcept { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
+
+  template<class Elem>
+  class FrameViewBase {
+  protected:
+    Elem* row_;
+    std::size_t ch_;
+
+    FrameViewBase(Elem* row, std::size_t ch) : row_(row), ch_(ch) {}
+
+  public:
+    [[nodiscard]] T peak() const noexcept {
+      T p = T(0);
+      for (std::size_t c = 0; c < ch_; ++c) {
+        T v = row_[c];
+        if constexpr (std::is_floating_point_v<T>) {
+          if (!std::isfinite(v)) continue;
+        }
+        v = std::abs(v);
+        if (v > p) p = v;
+      }
+      return p;
+    }
+  };
+
+  class FrameView : public FrameViewBase<T> {
+  public:
+    FrameView(T* row, std::size_t ch)
+      : FrameViewBase<T>(row, ch) {}
+
+    template<typename U> requires std::is_arithmetic_v<U>
+    FrameView& operator*=(U gain) noexcept {
+      const T g = static_cast<T>(gain);
+      for (std::size_t c = 0; c < this->ch_; ++c)
+        this->row_[c] *= g;
+      return *this;
+    }
+  };
+
+  class ConstFrameView : public FrameViewBase<const T> {
+  public:
+    ConstFrameView(const T* row, std::size_t ch)
+      : FrameViewBase<const T>(row, ch) {}
+  };
+
+  // 2D element access via multi-arg operator[]
+  T& operator[](std::size_t frame, std::size_t ch) noexcept {
+    assert(frame < frames_ && ch < channels_);
+    return storage[frame * channels_ + ch];
+  }
+  const T& operator[](std::size_t frame, std::size_t ch) const noexcept {
+    assert(frame < frames_ && ch < channels_);
+    return storage[frame * channels_ + ch];
+  }
+
+  // 1D frame view
+  FrameView operator[](std::size_t frame) noexcept {
+    assert(frame < frames_);
+    return FrameView(storage.data() + frame * channels_, channels_);
+  }
+  ConstFrameView operator[](std::size_t frame) const noexcept {
+    assert(frame < frames_);
+    return ConstFrameView(storage.data() + frame * channels_, channels_);
+  }
 
   [[nodiscard]] T peak() const noexcept {
     T p = T(0);
@@ -152,9 +222,8 @@ public:
   }
 
   void resize(std::size_t new_frames) {
-    const std::size_t ch = channels();
-    storage.resize(new_frames * ch);
-    audio = multichannel<T>(storage.data(), new_frames, ch);
+    storage.resize(new_frames * channels_);
+    frames_ = new_frames;
   }
 
   // Scale all samples in-place by gain.
@@ -793,7 +862,7 @@ double g_mix_bpm = 120.0;
       if (fr < total_frames) {
         float sum = 0.f;
         for (std::size_t c = 0; c < channels; ++c) {
-          sum += track.audio[fr, c];
+          sum += track[fr, c];
         }
         v = sum / static_cast<float>(channels);
       }
@@ -822,13 +891,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   // 1) Required attenuation (dB) to meet ceiling at each frame (computed on demand)
   auto required_att_dB = [&](size_t f) -> float {
-    float pk = 0.f;
-    for (size_t c = 0; c < ch; ++c) {
-      float v = buf.audio[f, c];
-      if (!std::isfinite(v)) continue;
-      v = std::fabs(v);
-      if (v > pk) pk = v;
-    }
+    float pk = buf[f].peak();
     // attenuation needed in dB (>= 0)
     return (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
   };
@@ -850,9 +913,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
     float g = std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
-    for (size_t c = 0; c < ch; ++c) {
-      buf.audio[f, c] *= g;
-    }
+    buf[f] *= g;
   }
 }
 
@@ -918,7 +979,6 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
           t *= targetHeadroom / peak;
         }
       }
-      
 
       auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
       size_t frames = res.frames();
@@ -997,7 +1057,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         size_t sC = ch % inChS;
-        out->audio[outF, ch] += a * it.res.audio[f, sC];
+        (*out)[outF, ch] += a * it.res[f, sC];
       }
     }
   }
@@ -1101,8 +1161,8 @@ void play(
       // Write each output channel from the corresponding source channel (wrap if more outs)
       for (size_t ch = 0; ch < output.extent(1); ++ch) {
         size_t srcC = ch % srcCh;
-        float s0 = track.audio[i0, srcC];
-        float s1 = track.audio[i1, srcC];
+        float s0 = track[i0, srcC];
+        float s1 = track[i1, srcC];
         float smp = std::lerp(s0, s1, static_cast<float>(frac));
         float mix = (smp * gainLin) + click;
         output[i, ch] = mix;
