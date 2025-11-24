@@ -37,6 +37,7 @@
 #include <string>
 #include <string_view>
 #include <sstream>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -915,6 +916,45 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   }
 }
 
+// Simple helper to run up to hardware_concurrency async tasks over [0,count)
+// while keeping deterministic index order and bounded RAM usage.
+template<class Func>
+void parallel_for_each_limited(std::size_t count, Func&& func)
+{
+  if (count == 0) return;
+
+  unsigned hc = std::thread::hardware_concurrency();
+  if (hc == 0) hc = 2; // conservative fallback
+  const std::size_t max_conc = std::min<std::size_t>(count, hc);
+
+  std::vector<std::future<void>> futs;
+  futs.reserve(max_conc);
+
+  std::size_t next = 0;
+
+  auto launch = [&](std::size_t i) {
+    return std::async(std::launch::async, [&, i]() {
+      func(i); // may throw; will be rethrown on future::get()
+    });
+  };
+
+  // Start up to max_conc tasks
+  for (; next < max_conc; ++next) {
+    futs.push_back(launch(next));
+  }
+
+  // As tasks finish, start new ones until all indices are processed
+  while (!futs.empty()) {
+    auto f = std::move(futs.back());
+    futs.pop_back();
+    f.get(); // propagate exception if any
+
+    if (next < count) {
+      futs.push_back(launch(next++));
+    }
+  }
+}
+
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
@@ -958,49 +998,39 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     double lastCue;
     double offset;
   };
-  std::vector<Item> items;
-  items.reserve(files.size());
+  std::vector<Item> items(files.size());
 
-  // Parallel per-track processing with std::async (exceptions propagate via future::get)
-  std::vector<std::future<Item>> futs;
-  futs.reserve(files.size());
+  // Parallel per-track processing with bounded concurrency.
+  parallel_for_each_limited(files.size(), [&](std::size_t i) {
+    Interleaved<float> t = load_track(files[i]);
+    const auto& ti = tis[i];
 
-  for (size_t i = 0; i < files.size(); ++i) {
-    futs.push_back(std::async(std::launch::async, [&, i]() -> Item {
-      Interleaved<float> t = load_track(files[i]);
-      const auto& ti = tis[i];
-
-      {
-        const float targetHeadroom = dbamp(kHeadroomDB);
-        const float peak = t.peak();
-        if (peak > 0.f && peak > targetHeadroom) {
-          t *= targetHeadroom / peak;
-        }
+    {
+      const float targetHeadroom = dbamp(kHeadroomDB);
+      const float peak = t.peak();
+      if (peak > 0.f && peak > targetHeadroom) {
+        t *= targetHeadroom / peak;
       }
+    }
 
-      auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
-      size_t frames = res.frames();
+    auto res = change_tempo(t, ti.bpm, bpm, outRate, converter_type);
+    size_t frames = res.frames();
 
-      int firstBar = ti.cue_bars.front();
-      int lastBar  = ti.cue_bars.back();
-      double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
-      double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
-      double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
+    int firstBar = ti.cue_bars.front();
+    int lastBar  = ti.cue_bars.back();
+    double shiftOut = ti.upbeat_beats * fpb + ti.time_offset_sec * (double)outRate;
+    double firstCue = shiftOut + (double)(firstBar - 1) * (double)ti.beats_per_bar * fpb;
+    double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)ti.beats_per_bar * fpb;
 
-      // Clamp
-      if (frames == 0) { firstCue = lastCue = 0.0; }
-      else {
-        firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-        lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
-      }
+    // Clamp
+    if (frames == 0) { firstCue = lastCue = 0.0; }
+    else {
+      firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
+      lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+    }
 
-      return Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 };
-    }));
-  }
-
-  for (auto& f : futs) {
-    items.push_back(f.get());
-  }
+    items[i] = Item{ files[i], ti, std::move(res), firstCue, lastCue, 0.0 };
+  });
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
