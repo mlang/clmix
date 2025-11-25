@@ -220,6 +220,126 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 100.0,
+      "cue_bars": [
+        33,
+        217
+      ],
+      "filename": "Ambient/Blue Tunes Chillout/Various Artists - Colorful Downbeats/Zen Baboon - Zen Baboon - Full Moon (Nibana Remix) [2117155853].mp3",
+      "tags": [
+        "psy",
+        "step"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 110.0,
+      "cue_bars": [
+        45,
+        203
+      ],
+      "filename": "Ambient/Blue Tunes Chillout/Various Artists - United Beats of Downtempo/Vol. 2/27 - Roeth & Grey - Attraction And Rejection.flac",
+      "tags": [
+        "Grey",
+        "Roeth",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 130.0,
+      "cue_bars": [
+        61,
+        385
+      ],
+      "filename": "Ambient/Desert Dwellers/Desert Dwellers - Walking Between (Supersillyus Rewiggling)-3865310196.mp3",
+      "tags": [],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        17,
+        161
+      ],
+      "filename": "Ambient/Psychedelic Jelly/Sanial - Something About The Sense [4018575716].mp3",
+      "tags": [
+        "psy",
+        "step"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        69,
+        269
+      ],
+      "filename": "Ambient/Symbolico/Connectika/02 - Symbolic Expression.flac",
+      "tags": [
+        "psy",
+        "step",
+        "symbolico"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 150.0,
+      "cue_bars": [
+        17,
+        161
+      ],
+      "filename": "Ambient/Symbolico/Connectika/03 - Like Water.flac",
+      "tags": [
+        "psy",
+        "step",
+        "symbolico"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 145.0,
+      "cue_bars": [
+        17,
+        265
+      ],
+      "filename": "Ambient/Symbolico/Destination <--> Home/02 - Phaze reversed.flac",
+      "tags": [
+        "psy",
+        "step",
+        "symbolico"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 137.0,
+      "cue_bars": [
+        25,
+        271
+      ],
+      "filename": "Ambient/Symbolico/Symbolico - Allow [3665281049].flac",
+      "tags": [
+        "symbolico"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 165.0,
       "cue_bars": [
         49,
@@ -231,6 +351,34 @@
       ],
       "time_offset_sec": 0.475,
       "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 132.0,
+      "cue_bars": [
+        35,
+        129
+      ],
+      "filename": "DnB/Blu Mar Ten/Frederic Robinson & Stray - Shore-400926341.mp3",
+      "tags": [
+        "step"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        49,
+        177
+      ],
+      "filename": "DnB/Blu Mar Ten/Kimyan Law - Zawadi/03 - Yore Dub.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 2.0
     },
     {
       "beats_per_bar": 4,
@@ -360,6 +508,34 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 155.0,
+      "cue_bars": [
+        1,
+        241
+      ],
+      "filename": "DnB/RuptureLDN/RuptureLDN - Warehouse Theory [1925666433].mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        17,
+        273
+      ],
+      "filename": "DnB/Seba/SECOPS009 - Warriors - Legion/02 - Legion.flac",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 175.0,
       "cue_bars": [
         49,
@@ -382,6 +558,84 @@
       "filename": "DnB/Straight Up Breakbeat/Zero Two/04 - Infader - Breaking Lights.flac",
       "tags": [
         "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 115.0,
+      "cue_bars": [
+        17,
+        161
+      ],
+      "filename": "Dub/Deadbeat/Deadbeat - Texas Tea [408829084].mp3",
+      "tags": [
+        "psy",
+        "step"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        160,
+        525
+      ],
+      "filename": "Dub/Globular/Digging & Building/02 - Infinity Inside.flac",
+      "tags": [
+        "dub",
+        "globular",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 154.0,
+      "cue_bars": [
+        117,
+        416
+      ],
+      "filename": "Dub/Globular/Holobiont/01 - Tabula Rasa.flac",
+      "tags": [
+        "dub",
+        "globular",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 140.0,
+      "cue_bars": [
+        40,
+        232
+      ],
+      "filename": "Dub/Ott/Blumenkraft/02 - Somersettler.flac",
+      "tags": [
+        "dub",
+        "ott",
+        "psy"
+      ],
+      "time_offset_sec": 0.3085,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 153.0,
+      "cue_bars": [
+        41,
+        284
+      ],
+      "filename": "Dub/Pangani/Superdubs/10 - Serious Happiness [The Flying Mars Remix].flac",
+      "tags": [
+        "psy",
+        "step"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
@@ -427,6 +681,15 @@
         "acid",
         "psy"
       ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 95.0,
+      "cue_bars": [],
+      "filename": "Psytrance/DVSM Records/Yggdrasil - Yggdrasil - Ratatosk-875681555.mp3",
+      "tags": [],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
@@ -739,116 +1002,6 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 154.0,
-      "cue_bars": [
-        117,
-        416
-      ],
-      "filename": "Dub/Globular/Holobiont/01 - Tabula Rasa.flac",
-      "tags": [
-        "dub",
-        "globular",
-        "psy"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 160.0,
-      "cue_bars": [
-        160,
-        525
-      ],
-      "filename": "Dub/Globular/Digging & Building/02 - Infinity Inside.flac",
-      "tags": [
-        "dub",
-        "globular",
-        "psy"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 145.0,
-      "cue_bars": [
-        17,
-        265
-      ],
-      "filename": "Ambient/Symbolico/Destination <--> Home/02 - Phaze reversed.flac",
-      "tags": [
-        "psy",
-        "step",
-        "symbolico"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 140.0,
-      "cue_bars": [
-        40,
-        232
-      ],
-      "filename": "Dub/Ott/Blumenkraft/02 - Somersettler.flac",
-      "tags": [
-        "dub",
-        "ott",
-        "psy"
-      ],
-      "time_offset_sec": 0.3085,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 160.0,
-      "cue_bars": [
-        69,
-        269
-      ],
-      "filename": "Ambient/Symbolico/Connectika/02 - Symbolic Expression.flac",
-      "tags": [
-        "psy",
-        "step",
-        "symbolico"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 150.0,
-      "cue_bars": [
-        17,
-        161
-      ],
-      "filename": "Ambient/Symbolico/Connectika/03 - Like Water.flac",
-      "tags": [
-        "psy",
-        "step",
-        "symbolico"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 172.0,
-      "cue_bars": [
-        49,
-        177
-      ],
-      "filename": "DnB/Blu Mar Ten/Kimyan Law - Zawadi/03 - Yore Dub.flac",
-      "tags": [
-        "dnb"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 2.0
-    },
-    {
-      "beats_per_bar": 4,
       "bpm": 140.0,
       "cue_bars": [
         31,
@@ -856,33 +1009,6 @@
       ],
       "filename": "Visionary Shamanics/Downtempo/Dubnotic - HUMAN NATURE (EP)/04 - Mind frames.flac",
       "tags": [],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 105.0,
-      "cue_bars": [
-        17,
-        165
-      ],
-      "filename": "Visionary Shamanics/Downtempo/Various Artists - Spiritual Alchemy/10 - DUBNOTIC - Flying Carpet.flac",
-      "tags": [],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 153.0,
-      "cue_bars": [
-        41,
-        284
-      ],
-      "filename": "Dub/Pangani/Superdubs/10 - Serious Happiness [The Flying Mars Remix].flac",
-      "tags": [
-        "psy",
-        "step"
-      ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
@@ -909,7 +1035,22 @@
         345
       ],
       "filename": "Visionary Shamanics/Downtempo/Various Artists - Sonic Mandala/22 - PSYDRAFT - The sands of time.flac",
-      "tags": ["psy", "downtempo"],
+      "tags": [
+        "downtempo",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 105.0,
+      "cue_bars": [
+        17,
+        165
+      ],
+      "filename": "Visionary Shamanics/Downtempo/Various Artists - Spiritual Alchemy/10 - DUBNOTIC - Flying Carpet.flac",
+      "tags": [],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
@@ -921,104 +1062,6 @@
         121
       ],
       "filename": "Visionary Shamanics/Downtempo/Various Artists - Temple of Dub/Vol. 1/25 - BALANCE - Lightness.flac",
-      "tags": [],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 110.0,
-      "cue_bars": [
-        45,
-        203
-      ],
-      "filename": "Ambient/Blue Tunes Chillout/Various Artists - United Beats of Downtempo/Vol. 2/27 - Roeth & Grey - Attraction And Rejection.flac",
-      "tags": ["psy", "Roeth", "Grey"],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 115.0,
-      "cue_bars": [
-        17,
-        161
-      ],
-      "filename": "Dub/Deadbeat/Deadbeat - Texas Tea [408829084].mp3",
-      "tags": ["psy", "step"],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 130.0,
-      "cue_bars": [
-        61,
-        385
-      ],
-      "filename": "Ambient/Desert Dwellers/Desert Dwellers - Walking Between (Supersillyus Rewiggling)-3865310196.mp3",
-      "tags": [],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 132.0,
-      "cue_bars": [
-        35,
-        129
-      ],
-      "filename": "DnB/Blu Mar Ten/Frederic Robinson & Stray - Shore-400926341.mp3",
-      "tags": ["step"],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 160.0,
-      "cue_bars": [
-        17,
-        161
-      ],
-      "filename": "Ambient/Psychedelic Jelly/Sanial - Something About The Sense [4018575716].mp3",
-      "tags": [
-        "psy",
-        "step"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 137.0,
-      "cue_bars": [
-        25,
-        271
-      ],
-      "filename": "Ambient/Symbolico/Symbolico - Allow [3665281049].flac",
-      "tags": [
-        "symbolico"
-      ],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 100.0,
-      "cue_bars": [
-        33,
-        217
-      ],
-      "filename": "Ambient/Blue Tunes Chillout/Various Artists - Colorful Downbeats/Zen Baboon - Zen Baboon - Full Moon (Nibana Remix) [2117155853].mp3",
-      "tags": ["psy", "step"],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 95.0,
-      "cue_bars": [],
-      "filename": "Psytrance/DVSM Records/Yggdrasil - Yggdrasil - Ratatosk-875681555.mp3",
       "tags": [],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
