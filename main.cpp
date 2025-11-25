@@ -342,6 +342,63 @@ measure_lufs(const Interleaved<float>& t)
   return out;
 }
 
+// Fade curve for envelopes / crossfades.
+enum class FadeCurve {
+  Linear,
+  Sine,  // sine-shaped equal-power style fade
+};
+
+// Map a normalized 0..1 parameter to a gain using the chosen curve.
+// For FadeCurve::Sine we use a sine-shaped equal-power style curve.
+[[nodiscard]] inline float apply_fade_curve(FadeCurve curve, double x) noexcept {
+  x = std::clamp(x, 0.0, 1.0);
+  switch (curve) {
+    case FadeCurve::Linear:
+      return static_cast<float>(x);
+
+    case FadeCurve::Sine: {
+      // Equal-power style fade: sin(pi/2 * x)
+      return static_cast<float>(std::sin(0.5 * std::numbers::pi_v<double> * x));
+    }
+  }
+  return static_cast<float>(x); // fallback
+}
+
+// Piecewise fade: fade-in from start->firstCue, unity between [firstCue,lastCue],
+// fade-out from lastCue->end. Uses a chosen curve (typically Sine = equal-power style).
+[[nodiscard]] inline float fade_for_frame(
+  size_t frameIndex,
+  size_t totalFrames,
+  double firstCue,
+  double lastCue,
+  FadeCurve curve = FadeCurve::Sine
+) noexcept
+{
+  if (totalFrames == 0) return 0.0f;
+  if (lastCue < firstCue) std::swap(lastCue, firstCue);
+
+  const double f = static_cast<double>(frameIndex);
+
+  // Fade-in region: [0, firstCue]
+  if (f <= firstCue) {
+    if (firstCue <= 0.0) return 1.0f; // degenerate: no fade-in
+    const double p = f / firstCue;    // 0..1
+    return apply_fade_curve(curve, p);
+  }
+
+  // Fade-out region: [lastCue, totalFrames)
+  if (f >= lastCue) {
+    const double denom = static_cast<double>(totalFrames) - lastCue;
+    if (denom <= 1e-12) return 0.0f;  // degenerate: no tail
+    const double p = (f - lastCue) / denom; // 0..1
+    // For fade-out, invert the curve: 1 - curve(p)
+    return 1.0f - apply_fade_curve(curve, p);
+  }
+
+  // Sustain region
+  return 1.0f;
+}
+
 // Encapsulated metronome state and processing
 struct Metronome {
   std::atomic<double> bpm{120.0};
@@ -1087,23 +1144,6 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
   std::fill_n(out->data(), out->samples(), 0.0f);
 
-  // Envelope: equal-power fade-in from start->firstCue, unity in [firstCue,lastCue], equal-power fade-out lastCue->end
-  auto env = [](size_t f, size_t frames, double firstCue, double lastCue)->float {
-    if (frames == 0) return 0.0f;
-    if (lastCue < firstCue) std::swap(lastCue, firstCue);
-    if ((double)f <= firstCue) {
-      if (firstCue <= 0.0) return 1.0f;
-      double p = (double)f / firstCue; // 0..1
-      return (float)std::sin(0.5 * std::numbers::pi_v<double> * p);
-    } else if ((double)f >= lastCue) {
-      double denom = (double)frames - lastCue;
-      if (denom <= 1e-12) return 0.0f;
-      double p = ((double)f - lastCue) / denom; // 0..1
-      return (float)std::cos(0.5 * std::numbers::pi_v<double> * p);
-    }
-    return 1.0f;
-  };
-
   // Mix down to out channels
   const auto outChS = (size_t)outCh;
   for (auto& it : items) {
@@ -1115,7 +1155,13 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
       if (outF >= totalFrames) break;
-      const auto a = gain_lin * env(f, it.res.frames(), it.firstCue, it.lastCue);
+      const auto a = gain_lin * fade_for_frame(
+        f,
+        it.res.frames(),
+        it.firstCue,
+        it.lastCue,
+        FadeCurve::Sine  // sine-shaped equal-power style fade
+      );
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
