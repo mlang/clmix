@@ -66,6 +66,9 @@ extern "C" {
 
 #include <nlohmann/json.hpp>
 
+#include <ebur128.h>
+
+
 namespace {
 
 using nlohmann::json;
@@ -231,6 +234,46 @@ public:
     return *this;
   }
 };
+
+struct ebur128_deleter {
+  void operator()(ebur128_state* p) const noexcept {
+    if (p) {
+      ebur128_destroy(&p);
+    }
+  }
+};
+
+using ebur128_ptr = std::unique_ptr<ebur128_state, ebur128_deleter>;
+
+[[nodiscard]] std::expected<double, std::string>
+measure_lufs(const Interleaved<float>& t)
+{
+  const unsigned int  channels   = static_cast<unsigned int>(t.channels());
+  const unsigned long samplerate = static_cast<unsigned long>(t.sample_rate);
+  const std::size_t   frames     = t.frames();
+
+  if (channels == 0 || samplerate == 0 || frames == 0) {
+    return std::unexpected("measure_lufs: empty or invalid track");
+  }
+
+  ebur128_ptr st{ebur128_init(channels, samplerate, EBUR128_MODE_I)};
+  if (!st) {
+    return std::unexpected("measure_lufs: ebur128_init failed");
+  }
+
+  if (int err = ebur128_add_frames_float(st.get(), t.data(), frames);
+      err != EBUR128_SUCCESS) {
+    return std::unexpected("measure_lufs: ebur128_add_frames_float failed");
+  }
+
+  double lufs = 0.0;
+  if (int err = ebur128_loudness_global(st.get(), &lufs);
+      err != EBUR128_SUCCESS) {
+    return std::unexpected("measure_lufs: ebur128_loudness_global failed");
+  }
+
+  return lufs;
+}
 
 [[nodiscard]] Interleaved<float> change_tempo(
   const Interleaved<float>& in,

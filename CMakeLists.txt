@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
+pkg_check_modules(EBUR128 libebur128)
 pkg_check_modules(Readline REQUIRED IMPORTED_TARGET readline)
 pkg_check_modules(SampleRate REQUIRED IMPORTED_TARGET samplerate)
 pkg_check_modules(SndFile REQUIRED IMPORTED_TARGET sndfile)
@@ -26,6 +27,7 @@ target_compile_definitions(clmix
 target_link_libraries(clmix
   PRIVATE nlohmann_json::nlohmann_json
           PkgConfig::Aubio
+          PkgConfig::EBUR128
           PkgConfig::Readline
           PkgConfig::SampleRate
           PkgConfig::SndFile
