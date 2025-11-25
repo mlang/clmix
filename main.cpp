@@ -374,7 +374,7 @@ struct Metronome {
     reset_runtime();
     const double q = std::max(0.0, posSrcFrames) / framesPerBeatSrc;
     const double qFloor = std::floor(q);
-    const uint64_t bi = static_cast<uint64_t>(qFloor);
+    const auto bi = static_cast<uint64_t>(qFloor);
     const double frac = q - qFloor;
     if (std::abs(frac) < 1e-9) {
       lastBeatIndex = bi - 1; // prime to trigger click at boundary (wraps for beat 0)
@@ -685,8 +685,9 @@ public:
 
         // Restrict tags starting with digits: must be all digits
         if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
-          bool all_digits = std::all_of(name.begin(), name.end(),
-                                        [](unsigned char c){ return std::isdigit(c); });
+          bool all_digits = std::ranges::all_of(name,
+            [](unsigned char c){ return std::isdigit(c); }
+          );
           if (!all_digits) {
             error("tag names starting with a digit must contain only digits");
           }
@@ -875,7 +876,7 @@ double g_mix_bpm = 120.0;
 
   const uint_t win_s = 1024;
   const uint_t hop_s = 512;
-  const uint_t samplerate = static_cast<uint_t>(track.sample_rate);
+  const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
   using tempo_ptr = std::unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
   using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
@@ -971,12 +972,12 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // Collect TrackInfo and ensure cues exist
   std::vector<Track> tracks;
   tracks.reserve(files.size());
-  for (auto& f : files) {
-    auto* ti = g_db.find(f);
-    if (!ti || ti->cue_bars.empty()) {
-      throw std::runtime_error("Track missing in DB or has no cues: " + f.generic_string());
+  for (auto const& file : files) {
+    auto* info = g_db.find(file);
+    if (!info || info->cue_bars.empty()) {
+      throw std::runtime_error("Track missing in DB or has no cues: " + file.generic_string());
     }
-    tracks.push_back(Track{f, *ti});
+    tracks.push_back(Track{file, *info});
   }
 
   // Mix BPM default: mean of track bpms (unless forced)
@@ -1099,13 +1100,12 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       if (denom <= 1e-12) return 0.0f;
       double p = ((double)f - lastCue) / denom; // 0..1
       return (float)std::cos(0.5 * std::numbers::pi_v<double> * p);
-    } else {
-      return 1.0f;
     }
+    return 1.0f;
   };
 
   // Mix down to out channels
-  const size_t outChS = (size_t)outCh;
+  const auto outChS = (size_t)outCh;
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
     const float gain_lin = dbamp(static_cast<float>(it.gain_db));
@@ -1199,8 +1199,8 @@ void play(
         unsigned bpbNow = std::max(1u, player.metro.bpb.load());
         const double adjNow  = std::max(0.0, pos - shiftSrc);
         const double adjNext = std::max(0.0, pos + incrSrcPerOut - shiftSrc);
-        uint64_t beatNow  = (uint64_t)std::floor(adjNow / framesPerBeatSrc);
-        uint64_t beatNext = (uint64_t)std::floor(adjNext / framesPerBeatSrc);
+        auto beatNow  = (uint64_t)std::floor(adjNow / framesPerBeatSrc);
+        auto beatNext = (uint64_t)std::floor(adjNext / framesPerBeatSrc);
         bool crossesBeat = (beatNext != beatNow);
         bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
@@ -1216,7 +1216,7 @@ void play(
       }
 
       // Linear interpolation per channel
-      size_t i0 = (size_t)pos;
+      auto i0 = (size_t)pos;
       double frac = pos - (double)i0;
       size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
 
@@ -1265,9 +1265,7 @@ void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 f
     cur.clear();
   };
 
-  for (size_t i = 0; i < s.size(); ++i) {
-    char ch = s[i];
-
+  for (char ch: s) {
     if (in_single) {
       if (ch == '\'') {
         in_single = false;
@@ -1778,7 +1776,7 @@ int main(int argc, char** argv)
   config.dataCallback      = callback;
   config.pUserData         = &g_player;
   ma_device device;
-  ma_result res = ma_device_init(NULL, &config, &device);
+  ma_result res = ma_device_init(nullptr, &config, &device);
   if (res != MA_SUCCESS) {
     std::cerr << "Audio device init failed: " << ma_result_description(res) << "\n";
     return 1;
@@ -2154,7 +2152,7 @@ int main(int argc, char** argv)
         std::println(std::cerr, "Export failed: frame count too large for libsndfile.");
         return;
       }
-      const sf_count_t frames = static_cast<sf_count_t>(mixTrack->frames());
+      const auto frames = static_cast<sf_count_t>(mixTrack->frames());
 
       // Open 24-bit WAV for writing
       SndfileHandle sf(outPath.string(),
