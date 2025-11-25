@@ -1062,9 +1062,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     Interleaved<float> res;
     double firstCue;
     double lastCue;
-    double offset;
     double lufs;
-    double gain_db = 0.0;
+    double offset = 0.0;
   };
   std::vector<std::expected<Item, std::string>> items_exp(files.size());
 
@@ -1102,7 +1101,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
           return measure_lufs(res).and_then(
             [&](double lufs) -> std::expected<Item, std::string> {
 	      return Item{
-                track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, lufs, 0.0
+                track.filename, track.ti, std::move(res),
+                firstCue, lastCue, lufs
               };
             }
           );
@@ -1152,7 +1152,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
-    std::println("gain_db: {}", it.gain_db);
+    std::println("gain_db: {}", ampdb(gain_lin));
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
