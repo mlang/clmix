@@ -248,8 +248,8 @@ using ebur128_ptr = std::unique_ptr<ebur128_state, ebur128_deleter>;
 [[nodiscard]] std::expected<double, std::string>
 measure_lufs(const Interleaved<float>& t)
 {
-  const unsigned int  channels   = static_cast<unsigned int>(t.channels());
-  const unsigned long samplerate = static_cast<unsigned long>(t.sample_rate);
+  const unsigned int  channels   = t.channels();
+  const unsigned long samplerate = t.sample_rate;
   const std::size_t   frames     = t.frames();
 
   if (channels == 0 || samplerate == 0 || frames == 0) {
@@ -1007,15 +1007,18 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items.begin(),
     [&](Track const& track) {
       Interleaved<float> t = load_track(track.filename);
-      {
-        const float targetHeadroom = dbamp(kHeadroomDB);
-        const float peak = t.peak();
-        if (peak > 0.f && peak > targetHeadroom) {
-          t *= targetHeadroom / peak;
-        }
+      const float targetHeadroom = dbamp(kHeadroomDB);
+      const float peak = t.peak();
+      float gain = 0.f;
+      if (peak > 0.f && peak > targetHeadroom) {
+        gain = targetHeadroom / peak;
+        t *= gain;
       }
 
       auto res = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
+      if (auto lufs = measure_lufs(res)) {
+        std::println("{} {} {}", peak, ampdb(gain), *lufs);
+      }
       size_t frames = res.frames();
 
       int firstBar = track.ti.cue_bars.front();
