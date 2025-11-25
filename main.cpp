@@ -1000,7 +1000,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     double firstCue;
     double lastCue;
     double offset;
-    double lufs = 0.0;
+    std::expected<double, std::string> lufs;
     double gain_db = 0.0;
   };
   std::vector<Item> items(files.size());
@@ -1020,12 +1020,10 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
       auto res = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
 
-      double lufs = 0.0;
-      if (auto m = measure_lufs(res)) {
-        lufs = *m;
-      } else {
+      auto lufs = measure_lufs(res);
+      if (!lufs) {
         std::println(std::cerr, "LUFS measurement failed for {}: {}",
-                     track.filename.generic_string(), m.error());
+                     track.filename.generic_string(), lufs.error());
       }
 
       size_t frames = res.frames();
@@ -1043,24 +1041,28 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
       }
 
-      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, lufs, 0.0 };
+      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, std::move(lufs), 0.0 };
     }
   );
 
-  // Compute target LUFS as mean of all track LUFS
+  // Compute target LUFS as mean of all track LUFS; throw if any failed
   double sum_lufs = 0.0;
-  std::size_t n_lufs = 0;
   for (auto const& it : items) {
-    sum_lufs += it.lufs;
-    ++n_lufs;
+    if (!it.lufs) {
+      throw std::runtime_error(
+        "LUFS measurement failed for " + it.file.generic_string() +
+        ": " + it.lufs.error()
+      );
+    }
+    sum_lufs += *it.lufs;
   }
-  const double target_lufs = (n_lufs > 0)
-    ? (sum_lufs / static_cast<double>(n_lufs))
-    : 0.0;
+  const double target_lufs = items.empty()
+    ? 0.0
+    : sum_lufs / static_cast<double>(items.size());
 
   // Compute per-track gain_db with clamping
   for (auto& it : items) {
-    it.gain_db = std::clamp(target_lufs - it.lufs, -12.0, 6.0);
+    it.gain_db = std::clamp(target_lufs - *it.lufs, -12.0, 6.0);
   }
 
   // Offsets: align last cue of A with first cue of B
@@ -1077,7 +1079,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // Determine total frames
   size_t totalFrames = 0;
   for (auto& it : items) {
-    totalFrames = std::max(totalFrames, (size_t)std::ceil(it.offset) + it.res.frames());
+    const auto offsetFrames = static_cast<std::size_t>(std::ceil(it.offset));
+    totalFrames = std::max(totalFrames, offsetFrames + it.res.frames());
   }
 
   auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
