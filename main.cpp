@@ -275,7 +275,7 @@ measure_lufs(const Interleaved<float>& t)
   return lufs;
 }
 
-[[nodiscard]] Interleaved<float> change_tempo(
+[[nodiscard]] std::expected<Interleaved<float>, std::string> change_tempo(
   const Interleaved<float>& in,
   double from_bpm, double to_bpm,
   uint32_t to_rate,
@@ -292,9 +292,11 @@ measure_lufs(const Interleaved<float>& t)
   assert(in.sample_rate > 0);
   assert(to_rate        > 0);
 
-  // libsamplerate constraints: still throw on overflow.
+  // libsamplerate constraints: still return error on overflow.
   if (!std::in_range<long>(in_frames_sz))
-    throw std::overflow_error("Input too large for libsamplerate (frame count exceeds 'long').");
+    return std::unexpected(std::string(
+      "Input too large for libsamplerate (frame count exceeds 'long')."
+    ));
 
   const long in_frames = static_cast<long>(in_frames_sz);
 
@@ -314,13 +316,17 @@ measure_lufs(const Interleaved<float>& t)
   const auto   est_out_frames_sz = static_cast<std::size_t>(est_out_frames_d);
 
   if (!std::in_range<long>(est_out_frames_sz))
-    throw std::overflow_error("Output too large for libsamplerate (frame count exceeds 'long').");
+    return std::unexpected(std::string(
+      "Output too large for libsamplerate (frame count exceeds 'long')."
+    ));
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
-  // libsamplerate channel constraint: still throw.
+  // libsamplerate channel constraint: still return error.
   if (!std::in_range<int>(channels))
-    throw std::invalid_argument("Channel count too large for libsamplerate.");
+    return std::unexpected(std::string(
+      "Channel count too large for libsamplerate."
+    ));
   const auto ch = static_cast<int>(channels);
 
   Interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
@@ -334,7 +340,7 @@ measure_lufs(const Interleaved<float>& t)
   data.src_ratio     = ratio;
 
   if (const int err = src_simple(&data, converter_type, ch); err != 0)
-    throw std::runtime_error(src_strerror(err));
+    return std::unexpected(std::string(src_strerror(err)));
 
   out.resize(static_cast<std::size_t>(data.output_frames_gen));
 
@@ -1075,7 +1081,14 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         t *= gain;
       }
 
-      auto res = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
+      auto resExp = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
+      if (!resExp) {
+        throw std::runtime_error(
+          "Tempo change failed for " + track.filename.generic_string() +
+          ": " + resExp.error()
+        );
+      }
+      Interleaved<float> res = std::move(*resExp);
 
       auto lufs = measure_lufs(res);
       if (!lufs) {
