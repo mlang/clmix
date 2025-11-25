@@ -333,8 +333,7 @@ measure_lufs(const Interleaved<float>& t)
   data.end_of_input  = 1;
   data.src_ratio     = ratio;
 
-  const int err = src_simple(&data, converter_type, ch);
-  if (err != 0)
+  if (const int err = src_simple(&data, converter_type, ch); err != 0)
     throw std::runtime_error(src_strerror(err));
 
   out.resize(static_cast<std::size_t>(data.output_frames_gen));
