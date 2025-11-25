@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cmath>
 #include <concepts>
+#include <cstring> // for std::memcpy
 #include <deque>
 #include <cstdlib>
 #include <cstdint>
@@ -42,7 +43,6 @@
 #include <utility>
 #include <variant>
 #include <vector>
-#include <cstring> // for std::memcpy
 
 #include "vendor/mdspan.hpp"
 
@@ -1027,28 +1027,24 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 ) {
   if (files.empty()) return {};
 
-  struct Track {
-    std::filesystem::path filename;
-    TrackInfo ti;
-  };
   // Collect TrackInfo and ensure cues exist
-  std::vector<Track> tracks;
+  std::vector<TrackInfo> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
     if (!info || info->cue_bars.empty()) {
       throw std::runtime_error("Track missing in DB or has no cues: " + file.generic_string());
     }
-    tracks.push_back(Track{file, *info});
+    tracks.push_back(*info);
   }
 
   // Mix BPM default: mean of track bpms (unless forced)
   auto bpm = force_bpm.value_or([&]{
-    const auto bpms = tracks | std::views::transform([](Track const &track) { return track.ti.bpm; });
-    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / static_cast<double>(tracks.size());
+    const auto bpms = tracks | std::views::transform(&TrackInfo::bpm);
+    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
   }());
   g_mix_bpm = bpm;
-  g_mix_bpb = tracks.front().ti.beats_per_bar;
+  g_mix_bpb = tracks.front().beats_per_bar;
 
   const uint32_t outRate = g_device_rate;
   if (!std::in_range<int>(g_device_channels))
@@ -1057,8 +1053,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   const double fpb = (double)outRate * 60.0 / bpm;
 
   struct Item {
-    std::filesystem::path file;
-    TrackInfo ti;
+    TrackInfo info;
     Interleaved<float> res;
     double firstCue;
     double lastCue;
@@ -1069,8 +1064,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   // Parallel per-track processing with std::async (exceptions propagate via future::get)
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
-    [&](Track const& track) {
-      Interleaved<float> t = load_track(track.filename);
+    [&](TrackInfo const& info) {
+      Interleaved<float> t = load_track(info.filename);
 
       // Pre-resample peak headroom
       const float targetHeadroom = dbamp(kHeadroomDB);
@@ -1080,16 +1075,16 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         t *= gain;
       }
 
-      return change_tempo(t, track.ti.bpm, bpm, outRate, converter_type)
+      return change_tempo(t, info.bpm, bpm, outRate, converter_type)
       .and_then(
         [&](Interleaved<float> res) {
 	  size_t frames = res.frames();
 
-	  int firstBar = track.ti.cue_bars.front();
-	  int lastBar  = track.ti.cue_bars.back();
-	  double shiftOut = track.ti.upbeat_beats * fpb + track.ti.time_offset_sec * (double)outRate;
-	  double firstCue = shiftOut + (double)(firstBar - 1) * (double)track.ti.beats_per_bar * fpb;
-	  double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)track.ti.beats_per_bar * fpb;
+	  int firstBar = info.cue_bars.front();
+	  int lastBar  = info.cue_bars.back();
+	  double shiftOut = info.upbeat_beats * fpb + info.time_offset_sec * (double)outRate;
+	  double firstCue = shiftOut + (double)(firstBar - 1) * (double)info.beats_per_bar * fpb;
+	  double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)info.beats_per_bar * fpb;
 
 	  // Clamp
 	  if (frames == 0) { firstCue = lastCue = 0.0; }
@@ -1101,15 +1096,14 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
           return measure_lufs(res).and_then(
             [&](double lufs) -> std::expected<Item, std::string> {
 	      return Item{
-                track.filename, track.ti, std::move(res),
-                firstCue, lastCue, lufs
+                info, std::move(res), firstCue, lastCue, lufs
               };
             }
           );
         }
       ).transform_error(
         [&](std::string err) {
-          return track.filename.generic_string() + ": " + err;
+          return info.filename.generic_string() + ": " + err;
         }
       );
     }
@@ -1181,11 +1175,11 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
   for (auto& it : items) {
-    for (int bar : it.ti.cue_bars) {
-      double shiftOut = it.ti.upbeat_beats * fpb
-                        + it.ti.time_offset_sec * (double)outRate;
+    for (int bar : it.info.cue_bars) {
+      double shiftOut = it.info.upbeat_beats * fpb
+                        + it.info.time_offset_sec * (double)outRate;
       double local = shiftOut
-                     + (double)(bar - 1) * (double)it.ti.beats_per_bar * fpb;
+                     + (double)(bar - 1) * (double)it.info.beats_per_bar * fpb;
       double mixFrame = it.offset + local;
 
       // Compute global bar index from mixFrame using integer math on beats.
@@ -1195,7 +1189,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
       g_mix_cues.push_back(MixCue{
         mixFrame,
         barIdx,
-        it.file,
+        it.info.filename,
         bar
       });
     }
