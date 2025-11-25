@@ -1000,6 +1000,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     double firstCue;
     double lastCue;
     double offset;
+    double lufs = 0.0;
+    double gain_db = 0.0;
   };
   std::vector<Item> items(files.size());
 
@@ -1007,18 +1009,25 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items.begin(),
     [&](Track const& track) {
       Interleaved<float> t = load_track(track.filename);
+
+      // Pre-resample peak headroom
       const float targetHeadroom = dbamp(kHeadroomDB);
-      const float peak = t.peak();
-      float gain = 0.f;
-      if (peak > 0.f && peak > targetHeadroom) {
-        gain = targetHeadroom / peak;
+      const float peak_in = t.peak();
+      if (peak_in > 0.f && peak_in > targetHeadroom) {
+        const float gain = targetHeadroom / peak_in;
         t *= gain;
       }
 
       auto res = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
-      if (auto lufs = measure_lufs(res)) {
-        std::println("{} {} {}", peak, ampdb(gain), *lufs);
+
+      double lufs = 0.0;
+      if (auto m = measure_lufs(res)) {
+        lufs = *m;
+      } else {
+        std::println(std::cerr, "LUFS measurement failed for {}: {}",
+                     track.filename.generic_string(), m.error());
       }
+
       size_t frames = res.frames();
 
       int firstBar = track.ti.cue_bars.front();
@@ -1034,9 +1043,29 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
       }
 
-      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0 };
+      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, lufs, 0.0 };
     }
   );
+
+  // Compute target LUFS as mean of all track LUFS
+  double sum_lufs = 0.0;
+  std::size_t n_lufs = 0;
+  for (auto const& it : items) {
+    sum_lufs += it.lufs;
+    ++n_lufs;
+  }
+  const double target_lufs = (n_lufs > 0)
+    ? (sum_lufs / static_cast<double>(n_lufs))
+    : 0.0;
+
+  // Compute per-track gain_db with clamping
+  constexpr double kMaxBoostDb = 6.0;
+  constexpr double kMaxCutDb   = 12.0;
+  for (auto& it : items) {
+    double gain_db = target_lufs - it.lufs;
+    gain_db = std::clamp(gain_db, -kMaxCutDb, kMaxBoostDb);
+    it.gain_db = gain_db;
+  }
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
@@ -1080,6 +1109,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   const size_t outChS = (size_t)outCh;
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
+    const float gain_lin = dbamp(static_cast<float>(it.gain_db));
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
@@ -1090,7 +1120,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         size_t sC = ch % inChS;
-        (*out)[outF, ch] += a * it.res[f, sC];
+        (*out)[outF, ch] += a * gain_lin * it.res[f, sC];
       }
     }
     it.res = Interleaved<float>();
