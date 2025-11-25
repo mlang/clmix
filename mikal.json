@@ -354,6 +354,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        33,
+        289
+      ],
+      "filename": "DnB/Big Bud/Children of Jah/04 - Stinkweed.flac",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset_sec": 0.275,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 132.0,
       "cue_bars": [
         35,
@@ -505,6 +520,35 @@
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": -0.75
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        65,
+        285
+      ],
+      "filename": "DnB/Inperspective Records/Senses - SE4004 – Saint Germaine - Drumstruck/01 - Saint Germaine.flac",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset_sec": 0.035,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        17,
+        193
+      ],
+      "filename": "DnB/Naibu/Manœuvres/02 - Distant Light.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.02,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
