@@ -1059,12 +1059,8 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     : 0.0;
 
   // Compute per-track gain_db with clamping
-  constexpr double kMaxBoostDb = 6.0;
-  constexpr double kMaxCutDb   = 12.0;
   for (auto& it : items) {
-    double gain_db = target_lufs - it.lufs;
-    gain_db = std::clamp(gain_db, -kMaxCutDb, kMaxBoostDb);
-    it.gain_db = gain_db;
+    it.gain_db = std::clamp(target_lufs - it.lufs, -12.0, 6.0);
   }
 
   // Offsets: align last cue of A with first cue of B
@@ -1110,17 +1106,18 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
     const float gain_lin = dbamp(static_cast<float>(it.gain_db));
+    std::println("gain_db: {}", it.gain_db);
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
       if (outF >= totalFrames) break;
-      float a = env(f, it.res.frames(), it.firstCue, it.lastCue);
+      const auto a = gain_lin * env(f, it.res.frames(), it.firstCue, it.lastCue);
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
-        size_t sC = ch % inChS;
-        (*out)[outF, ch] += a * gain_lin * it.res[f, sC];
+        const size_t sC = ch % inChS;
+        (*out)[outF, ch] += a * it.res[f, sC];
       }
     }
     it.res = Interleaved<float>();
