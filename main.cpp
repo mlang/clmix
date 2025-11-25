@@ -1063,13 +1063,13 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     double firstCue;
     double lastCue;
     double offset;
-    std::expected<double, std::string> lufs;
+    double lufs;
     double gain_db = 0.0;
   };
-  std::vector<Item> items(files.size());
+  std::vector<std::expected<Item, std::string>> items_exp(files.size());
 
   // Parallel per-track processing with std::async (exceptions propagate via future::get)
-  std::transform(std::execution::par, tracks.begin(), tracks.end(), items.begin(),
+  std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
     [&](Track const& track) {
       Interleaved<float> t = load_track(track.filename);
 
@@ -1081,59 +1081,50 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         t *= gain;
       }
 
-      auto resExp = change_tempo(t, track.ti.bpm, bpm, outRate, converter_type);
-      if (!resExp) {
-        throw std::runtime_error(
-          "Tempo change failed for " + track.filename.generic_string() +
-          ": " + resExp.error()
-        );
-      }
-      Interleaved<float> res = std::move(*resExp);
+      return change_tempo(t, track.ti.bpm, bpm, outRate, converter_type)
+      .and_then(
+        [&](Interleaved<float> res) {
+	  size_t frames = res.frames();
 
-      auto lufs = measure_lufs(res);
-      if (!lufs) {
-        std::println(std::cerr, "LUFS measurement failed for {}: {}",
-                     track.filename.generic_string(), lufs.error());
-      }
+	  int firstBar = track.ti.cue_bars.front();
+	  int lastBar  = track.ti.cue_bars.back();
+	  double shiftOut = track.ti.upbeat_beats * fpb + track.ti.time_offset_sec * (double)outRate;
+	  double firstCue = shiftOut + (double)(firstBar - 1) * (double)track.ti.beats_per_bar * fpb;
+	  double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)track.ti.beats_per_bar * fpb;
 
-      size_t frames = res.frames();
+	  // Clamp
+	  if (frames == 0) { firstCue = lastCue = 0.0; }
+	  else {
+	    firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
+	    lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+	  }
 
-      int firstBar = track.ti.cue_bars.front();
-      int lastBar  = track.ti.cue_bars.back();
-      double shiftOut = track.ti.upbeat_beats * fpb + track.ti.time_offset_sec * (double)outRate;
-      double firstCue = shiftOut + (double)(firstBar - 1) * (double)track.ti.beats_per_bar * fpb;
-      double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)track.ti.beats_per_bar * fpb;
-
-      // Clamp
-      if (frames == 0) { firstCue = lastCue = 0.0; }
-      else {
-        firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-        lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
-      }
-
-      return Item{ track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, std::move(lufs), 0.0 };
+          return measure_lufs(res).and_then(
+            [&](double lufs) -> std::expected<Item, std::string> {
+	      return Item{
+                track.filename, track.ti, std::move(res), firstCue, lastCue, 0.0, lufs, 0.0
+              };
+            }
+          );
+        }
+      ).transform_error(
+        [&](std::string err) {
+          return track.filename.generic_string() + ": " + err;
+        }
+      );
     }
   );
 
-  // Compute target LUFS as mean of all track LUFS; throw if any failed
-  double sum_lufs = 0.0;
-  for (auto const& it : items) {
-    if (!it.lufs) {
-      throw std::runtime_error(
-        "LUFS measurement failed for " + it.file.generic_string() +
-        ": " + it.lufs.error()
-      );
-    }
-    sum_lufs += *it.lufs;
+  std::vector<Item> items;
+  for (auto &item: items_exp) {
+    if (!item) throw std::runtime_error(item.error());
+    items.push_back(std::move(*item));
   }
-  const double target_lufs = items.empty()
-    ? 0.0
-    : sum_lufs / static_cast<double>(items.size());
 
-  // Compute per-track gain_db with clamping
-  for (auto& it : items) {
-    it.gain_db = std::clamp(target_lufs - *it.lufs, -12.0, 6.0);
-  }
+  // Compute target LUFS as mean of all track LUFS
+  const auto target_lufs = std::ranges::fold_left(
+    items | std::views::transform(&Item::lufs), 0.0, std::plus<double>{}
+  ) / items.size();
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
@@ -1160,20 +1151,20 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   const auto outChS = (size_t)outCh;
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
-    const float gain_lin = dbamp(static_cast<float>(it.gain_db));
+    const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
     std::println("gain_db: {}", it.gain_db);
     for (size_t f = 0; f < it.res.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
       if (outF >= totalFrames) break;
-      const auto a = gain_lin * fade_for_frame(
+      const auto a = fade_for_frame(
         f,
         it.res.frames(),
         it.firstCue,
         it.lastCue,
         FadeCurve::Sine  // sine-shaped equal-power style fade
-      );
+      ) * gain_lin;
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
