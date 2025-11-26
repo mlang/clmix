@@ -21,6 +21,7 @@
 #include <fstream>
 #include <functional>
 #include <future>
+#include <getopt.h>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -1824,18 +1825,140 @@ char** clmix_completion(const char* text, int start, int end) {
   return rl_completion_matches(text, generator);
 }
 
+// Helper: rebuild mix into global player from g_mix_tracks, optionally forcing BPM.
+void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
+{
+  if (g_mix_tracks.empty()) {
+    throw std::runtime_error("No tracks in mix.");
+  }
+
+  g_player.playing.store(false);
+  auto mixTrack = build_mix_track(g_mix_tracks, force_bpm);
+  g_player.track = mixTrack;
+  g_player.srcPos = 0.0;
+  g_player.seekPending.store(false);
+  g_player.seekTargetFrames.store(0.0);
+  // keep existing volume (persist across mix rebuilds)
+  g_player.metro.reset_runtime();
+  g_player.metro.bpm.store(g_mix_bpm);
+  g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+  if (!g_mix_tracks.empty()) {
+    if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+      g_player.upbeatBeats.store(ti0->upbeat_beats);
+      g_player.timeOffsetSec.store(ti0->time_offset_sec);
+    } else {
+      g_player.upbeatBeats.store(0.0);
+      g_player.timeOffsetSec.store(0.0);
+    }
+  }
+}
+
+// Helper: export current mix (based on g_mix_tracks/g_mix_bpm) to a file.
+bool export_current_mix(const std::filesystem::path& outPath)
+{
+  if (g_mix_tracks.empty()) {
+    std::println(std::cerr, "No tracks in mix.");
+    return false;
+  }
+
+  try {
+    // Stop playback to avoid concurrent access while rendering/exporting
+    g_player.playing.store(false);
+    // Release any existing mix from the player to avoid holding two copies in RAM
+    g_player.track.reset();
+
+    // Rebuild a fresh mix with current BPM and tracks, best quality SRC
+    auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
+
+    if (!std::in_range<sf_count_t>(mixTrack->frames())) {
+      std::println(std::cerr, "Export failed: frame count too large for libsndfile.");
+      return false;
+    }
+    const auto frames = static_cast<sf_count_t>(mixTrack->frames());
+
+    SndfileHandle sf(outPath.string(),
+                     SFM_WRITE,
+                     SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+                     static_cast<int>(mixTrack->channels()),
+                     static_cast<int>(mixTrack->sample_rate));
+    if (sf.error()) {
+      std::println(std::cerr, "Failed to open output file: {}", outPath.generic_string());
+      return false;
+    }
+
+    const sf_count_t written = sf.writef(mixTrack->data(), frames);
+    if (written != frames) {
+      std::println(std::cerr, "Short write: wrote {} of {} frames",
+                   written, frames);
+      return false;
+    }
+
+    std::cout << "Exported " << frames
+              << " frames (" << mixTrack->sample_rate << " Hz, "
+              << mixTrack->channels() << " ch) to " << outPath << "\n";
+    return true;
+  } catch (const std::exception& e) {
+    std::println(std::cerr, "Export failed: {}", e.what());
+    return false;
+  }
+}
+
 }
 
 int main(int argc, char** argv)
 {
   if (argc < 2) {
-    std::cerr << "Usage: clmix <trackdb.txt>\n"
-                 "Provide the path to the track database file.\n";
+    std::cerr << "Usage: clmix <trackdb.txt> [options]\n"
+                 "Options:\n"
+                 "  --random <expr>   Build mix from random tracks matching tag/BPM expr\n"
+                 "  --bpm <value>     Force mix BPM\n"
+                 "  --export <file>   Render mix to 24-bit WAV and exit (no REPL)\n";
     return 2;
   }
+
   const std::filesystem::path trackdb_path = argv[1];
 
   g_db.load(trackdb_path);
+
+  // Command-line options (after trackdb_path)
+  std::optional<std::string> opt_random_expr;
+  std::optional<double>      opt_bpm;
+  std::optional<std::filesystem::path> opt_export_path;
+
+  // Prepare getopt_long
+  int opt;
+  int option_index = 0;
+  static struct option long_options[] = {
+    {"random", required_argument, nullptr, 'r'},
+    {"bpm",    required_argument, nullptr, 'b'},
+    {"export", required_argument, nullptr, 'e'},
+    {nullptr,  0,                 nullptr,  0 }
+  };
+
+  // Start parsing after the trackdb argument
+  optind = 2;
+  while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
+    switch (opt) {
+      case 'r':
+        opt_random_expr = std::string(optarg);
+        break;
+      case 'b': {
+        auto v = parse_number<double>(optarg);
+        if (!v || *v <= 0.0) {
+          std::cerr << "Invalid --bpm value: "
+                    << (v ? "must be > 0" : v.error()) << "\n";
+          return 2;
+        }
+        opt_bpm = *v;
+        break;
+      }
+      case 'e':
+        opt_export_path = std::filesystem::path(optarg);
+        break;
+      default:
+        return 2;
+    }
+  }
 
   ma_device_config config = ma_device_config_init(ma_device_type_playback);
   config.playback.format   = ma_format_f32;
@@ -1860,6 +1983,63 @@ int main(int argc, char** argv)
 
   g_device_rate = device.sampleRate;
   g_device_channels = device.playback.channels;
+
+  // If --random was given, build g_mix_tracks from DB using Matcher
+  if (opt_random_expr) {
+    if (g_db.items.empty()) {
+      std::println(std::cerr, "Track DB is empty.");
+      ma_device_uninit(&device);
+      return 1;
+    }
+
+    Matcher matcher;
+    try {
+      matcher = Matcher::parse(*opt_random_expr);
+    } catch (const std::exception& e) {
+      std::println(std::cerr, "Invalid --random expression: {}", e.what());
+      ma_device_uninit(&device);
+      return 1;
+    }
+
+    std::vector<std::filesystem::path> all;
+    all.reserve(g_db.items.size());
+    for (const auto& kv : g_db.items) {
+      const TrackInfo& ti = kv.second;
+      if (!ti.cue_bars.empty() && matcher(ti)) {
+        all.push_back(ti.filename);
+      }
+    }
+    if (all.empty()) {
+      std::println(std::cerr, "No tracks with cues matching --random expression.");
+      ma_device_uninit(&device);
+      return 1;
+    }
+
+    std::mt19937 rng(std::random_device{}());
+    std::shuffle(all.begin(), all.end(), rng);
+    g_mix_tracks = std::move(all);
+  }
+
+  // If we have any mix tracks (from --random or previous DB state) and/or a forced BPM,
+  // prebuild the mix into the player.
+  if (!g_mix_tracks.empty()) {
+    try {
+      rebuild_mix_into_player(opt_bpm);
+    } catch (const std::exception& e) {
+      std::println(std::cerr, "Failed to build initial mix: {}", e.what());
+      ma_device_uninit(&device);
+      return 1;
+    }
+  } else if (opt_bpm) {
+    std::println(std::cerr, "Warning: --bpm specified but no tracks in mix.");
+  }
+
+  // If --export was provided, export and exit (no REPL)
+  if (opt_export_path) {
+    bool ok = export_current_mix(*opt_export_path);
+    ma_device_uninit(&device);
+    return ok ? 0 : 1;
+  }
 
   // Set up readline completion for track-info filenames (with quoting)
   rl_attempted_completion_function = clmix_completion;
@@ -1910,25 +2090,7 @@ int main(int argc, char** argv)
     }
     g_mix_tracks.push_back(f);
     try {
-      g_player.playing.store(false);
-      auto mixTrack = build_mix_track(g_mix_tracks);
-      g_player.track = mixTrack;
-      g_player.srcPos = 0.0;
-      g_player.seekPending.store(false);
-      g_player.seekTargetFrames.store(0.0);
-      // keep existing volume (persist across mix rebuilds)
-      g_player.metro.reset_runtime();
-      g_player.metro.bpm.store(g_mix_bpm);
-      g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
-      if (!g_mix_tracks.empty()) {
-        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
-          g_player.upbeatBeats.store(ti0->upbeat_beats);
-          g_player.timeOffsetSec.store(ti0->time_offset_sec);
-        } else {
-          g_player.upbeatBeats.store(0.0);
-          g_player.timeOffsetSec.store(0.0);
-        }
-      }
+      rebuild_mix_into_player(std::nullopt);
       std::cout << "Added. Mix size: " << g_mix_tracks.size()
                 << ", BPM: " << g_mix_bpm
                 << ", BPB: " << g_mix_bpb << "\n";
@@ -1951,23 +2113,12 @@ int main(int argc, char** argv)
         std::println(std::cerr, "Invalid BPM: must be > 0");
         return;
       }
-      g_player.playing.store(false);
-      auto mixTrack = build_mix_track(g_mix_tracks, *v);
-      g_player.track = mixTrack;
-      g_player.srcPos = 0.0;
-      g_player.metro.reset_runtime();
-      g_player.metro.bpm.store(g_mix_bpm);
-      g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
-      if (!g_mix_tracks.empty()) {
-        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
-          g_player.upbeatBeats.store(ti0->upbeat_beats);
-          g_player.timeOffsetSec.store(ti0->time_offset_sec);
-        } else {
-          g_player.upbeatBeats.store(0.0);
-          g_player.timeOffsetSec.store(0.0);
-        }
+      try {
+        rebuild_mix_into_player(*v);
+        std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
+      } catch (const std::exception& e) {
+        std::println(std::cerr, "Failed to rebuild mix: {}", e.what());
       }
-      std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
     } else {
       std::println(std::cerr, "Invalid BPM: {}", v.error());
     }
@@ -1980,20 +2131,7 @@ int main(int argc, char** argv)
         return;
       }
       try {
-        g_player.track = build_mix_track(g_mix_tracks);
-        g_player.srcPos = 0.0;
-        g_player.metro.reset_runtime();
-        g_player.metro.bpm.store(g_mix_bpm);
-        g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
-        if (!g_mix_tracks.empty()) {
-          if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
-            g_player.upbeatBeats.store(ti0->upbeat_beats);
-            g_player.timeOffsetSec.store(ti0->time_offset_sec);
-          } else {
-            g_player.upbeatBeats.store(0.0);
-            g_player.timeOffsetSec.store(0.0);
-          }
-        }
+        rebuild_mix_into_player(std::nullopt);
       } catch (const std::exception& e) {
         std::println(std::cerr, "Build mix failed: {}", e.what());
         return;
@@ -2170,25 +2308,7 @@ int main(int argc, char** argv)
                    i + 1, g_mix_tracks[i].generic_string());
     }
     try {
-      g_player.playing.store(false);
-      auto mixTrack = build_mix_track(g_mix_tracks);
-      g_player.track = mixTrack;
-      g_player.srcPos = 0.0;
-      g_player.seekPending.store(false);
-      g_player.seekTargetFrames.store(0.0);
-      // keep existing volume (persist across mix rebuilds)
-      g_player.metro.reset_runtime();
-      g_player.metro.bpm.store(g_mix_bpm);
-      g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
-      if (!g_mix_tracks.empty()) {
-        if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
-          g_player.upbeatBeats.store(ti0->upbeat_beats);
-          g_player.timeOffsetSec.store(ti0->time_offset_sec);
-        } else {
-          g_player.upbeatBeats.store(0.0);
-          g_player.timeOffsetSec.store(0.0);
-        }
-      }
+      rebuild_mix_into_player(std::nullopt);
       std::cout << "Random mix created with " << g_mix_tracks.size()
                 << " tracks. BPM: " << g_mix_bpm
                 << ", BPB: " << g_mix_bpb << "\n";
@@ -2208,45 +2328,7 @@ int main(int argc, char** argv)
     }
 
     const std::filesystem::path outPath = a[0];
-    try {
-      // Stop playback to avoid concurrent access while rendering/exporting
-      g_player.playing.store(false);
-      // Release any existing mix from the player to avoid holding two copies in RAM
-      g_player.track.reset();
-
-      // Rebuild a fresh mix with current BPM and tracks
-      auto mixTrack = build_mix_track(g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY);
-
-      if (!std::in_range<sf_count_t>(mixTrack->frames())) {
-        std::println(std::cerr, "Export failed: frame count too large for libsndfile.");
-        return;
-      }
-      const auto frames = static_cast<sf_count_t>(mixTrack->frames());
-
-      // Open 24-bit WAV for writing
-      SndfileHandle sf(outPath.string(),
-                       SFM_WRITE,
-                       SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                       static_cast<int>(mixTrack->channels()),
-                       static_cast<int>(mixTrack->sample_rate));
-      if (sf.error()) {
-        std::println(std::cerr, "Failed to open output file: {}", outPath.generic_string());
-        return;
-      }
-
-      // Write frames; libsndfile converts float -> PCM_24 and clips if needed
-      const sf_count_t written = sf.writef(mixTrack->data(), frames);
-      if (written != frames) {
-        std::println(std::cerr, "Short write: wrote {} of {} frames",
-                     written, frames);
-      } else {
-        std::cout << "Exported " << frames
-                  << " frames (" << mixTrack->sample_rate << " Hz, "
-                  << mixTrack->channels() << " ch) to " << outPath << "\n";
-      }
-    } catch (const std::exception& e) {
-      std::println(std::cerr, "Export failed: {}", e.what());
-    }
+    (void)export_current_mix(outPath);
   });
 
   repl.run("clmix> ");
