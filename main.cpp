@@ -225,6 +225,9 @@ public:
     frames_ = new_frames;
   }
 
+  void clear() { resize(0); }
+  void shrink_to_fit() { storage.shrink_to_fit(); }
+
   // Scale all samples in-place by gain.
   template<typename U> requires std::is_arithmetic_v<U>
   interleaved &operator*=(U gain) noexcept
@@ -1085,16 +1088,20 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   };
   std::vector<std::expected<Item, std::string>> items_exp(files.size());
 
-  // Parallel per-track processing with std::async (exceptions propagate via future::get)
+  // Parallel per-track processing
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
     [&](TrackInfo const& info) -> std::expected<Item, std::string> {
-      return load_track(info.filename)
-        .and_then([&](interleaved<float> t) {
+      return load_track(info.filename).and_then(
+        [&](interleaved<float> original) {
           // Pre-resample peak headroom
-          ensure_headroom(t, kHeadroomDB);
-          return change_tempo(t, info.bpm, bpm, outRate, src_type);
-        })
-        .and_then([&](interleaved<float> audio) -> std::expected<Item, std::string> {
+          ensure_headroom(original, kHeadroomDB);
+          return change_tempo(original, info.bpm, bpm, outRate, src_type);
+        }
+      ).and_then(
+        [&](interleaved<float> audio) -> std::expected<Item, std::string> {
+          original.clear();
+          original.shrink_to_fit();
+
           size_t frames = audio.frames();
 
           int firstBar = info.cue_bars.front();
@@ -1121,12 +1128,12 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
               };
             }
           );
-        })
-        .transform_error(
-          [&](std::string error_msg) {
-            return info.filename.generic_string() + ": " + error_msg;
-          }
-        );
+        }
+      ).transform_error(
+        [&](std::string error_msg) {
+          return info.filename.generic_string() + ": " + error_msg;
+        }
+      );
     }
   );
 
@@ -1163,7 +1170,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   std::fill_n(out->data(), out->samples(), 0.0f);
 
   // Mix down to out channels
-  const auto outChS = (size_t)outCh;
+  const auto outChS = static_cast<size_t>(outCh);
   for (auto& it : items) {
     const size_t inChS = it.res.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
@@ -1187,7 +1194,10 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
         (*out)[outF, ch] += a * it.res[f, sC];
       }
     }
-    it.res = interleaved<float>();
+
+    // Done with this tracks audio
+    it.res.clear();
+    is.res.shrink_to_fit();
   }
 
   // Final offline two-pass limiter for transparent ceiling control
