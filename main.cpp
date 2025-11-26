@@ -916,23 +916,35 @@ std::vector<MixCue> g_mix_cues;
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
-[[nodiscard]] interleaved<float> load_track(std::filesystem::path file)
+[[nodiscard]] std::expected<interleaved<float>, std::string>
+load_track(const std::filesystem::path& file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
-    throw std::runtime_error("Failed to open audio file: " + file.string());
+    return std::unexpected(
+      "Failed to open audio file: " + file.generic_string()
+    );
   }
 
   const sf_count_t frames = sf.frames();
   const int sr = sf.samplerate();
   if (sr <= 0) {
-    throw std::runtime_error("Invalid sample rate in file: " + file.string());
+    return std::unexpected(
+      "Invalid sample rate in file: " + file.generic_string()
+    );
   }
-  interleaved<float> track(static_cast<uint32_t>(sr), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
+
+  interleaved<float> track(
+    static_cast<uint32_t>(sr),
+    static_cast<std::size_t>(sf.channels()),
+    static_cast<std::size_t>(frames)
+  );
 
   const sf_count_t read_frames = sf.readf(track.data(), frames);
   if (read_frames < 0) {
-    throw std::runtime_error("Failed to read audio data from file: " + file.string());
+    return std::unexpected(
+      "Failed to read audio data from file: " + file.generic_string()
+    );
   }
   if (read_frames != frames) {
     track.resize(static_cast<std::size_t>(read_frames));
@@ -1075,42 +1087,46 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
   // Parallel per-track processing with std::async (exceptions propagate via future::get)
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
-    [&](TrackInfo const& info) {
-      interleaved<float> t = load_track(info.filename);
+    [&](TrackInfo const& info) -> std::expected<Item, std::string> {
+      return load_track(info.filename)
+        .and_then([&](interleaved<float> t) {
+          // Pre-resample peak headroom
+          ensure_headroom(t, kHeadroomDB);
+          return change_tempo(t, info.bpm, bpm, outRate, src_type);
+        })
+        .and_then([&](interleaved<float> audio) -> std::expected<Item, std::string> {
+          size_t frames = audio.frames();
 
-      // Pre-resample peak headroom
-      ensure_headroom(t, kHeadroomDB);
+          int firstBar = info.cue_bars.front();
+          int lastBar  = info.cue_bars.back();
+          const double shiftOut =
+            info.upbeat_beats * fpb + info.time_offset_sec * outRate;
+          double firstCue =
+            shiftOut + (firstBar - 1) * info.beats_per_bar * fpb;
+          double lastCue  =
+            shiftOut + (lastBar  - 1) * info.beats_per_bar * fpb;
 
-      return change_tempo(t, info.bpm, bpm, outRate, src_type).and_then(
-        [&](interleaved<float> audio) {
-	  size_t frames = audio.frames();
-
-	  int firstBar = info.cue_bars.front();
-	  int lastBar  = info.cue_bars.back();
-	  const double shiftOut = info.upbeat_beats * fpb + info.time_offset_sec * outRate;
-	  double firstCue = shiftOut + (firstBar - 1) * info.beats_per_bar * fpb;
-	  double lastCue  = shiftOut + (lastBar - 1) * info.beats_per_bar * fpb;
-
-	  // Clamp
-	  if (frames == 0) { firstCue = lastCue = 0.0; }
-	  else {
-	    firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-	    lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
-	  }
+          // Clamp
+          if (frames == 0) {
+            firstCue = lastCue = 0.0;
+          } else {
+            firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
+            lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+          }
 
           return measure_lufs(audio).and_then(
             [&](double lufs) -> std::expected<Item, std::string> {
-	      return Item{
+              return Item{
                 info, std::move(audio), firstCue, lastCue, lufs
               };
             }
           );
-        }
-      ).transform_error(
-        [&](std::string error_msg) {
-          return info.filename.generic_string() + ": " + error_msg;
-        }
-      );
+        })
+        .transform_error(
+          [&](std::string error_msg) {
+            return info.filename.generic_string() + ": " + error_msg;
+          }
+        );
     }
   );
 
@@ -1451,14 +1467,12 @@ void register_volume_command(REPL& repl, std::string label) {
 
 void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
 {
-  interleaved<float> t;
-  try {
-    t = load_track(f);
-  } catch (const std::exception& e) {
-    std::println(std::cerr, "Error: {}", e.what());
+  auto t_exp = load_track(f);
+  if (!t_exp) {
+    std::println(std::cerr, "Error: {}", t_exp.error());
     return;
   }
-  auto tr = std::make_shared<interleaved<float>>(std::move(t));
+  auto tr = std::make_shared<interleaved<float>>(std::move(*t_exp));
 
   double guessedBpm = 0.0;
 
