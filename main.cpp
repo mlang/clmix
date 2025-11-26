@@ -1092,16 +1092,13 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
     [&](TrackInfo const& info) -> std::expected<Item, std::string> {
       return load_track(info.filename).and_then(
-        [&](interleaved<float> original) {
+        [&](interleaved<float> audio) {
           // Pre-resample peak headroom
-          ensure_headroom(original, kHeadroomDB);
-          return change_tempo(original, info.bpm, bpm, outRate, src_type);
+          ensure_headroom(audio, kHeadroomDB);
+          return change_tempo(audio, info.bpm, bpm, outRate, src_type);
         }
       ).and_then(
         [&](interleaved<float> audio) -> std::expected<Item, std::string> {
-          original.clear();
-          original.shrink_to_fit();
-
           size_t frames = audio.frames();
 
           int firstBar = info.cue_bars.front();
