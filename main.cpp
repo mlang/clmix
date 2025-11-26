@@ -118,7 +118,7 @@ requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
 }
 
 template<typename T>
-class Interleaved {
+class interleaved {
   std::vector<T> storage;
   std::size_t frames_   = 0;
   std::size_t channels_ = 0;
@@ -126,18 +126,18 @@ class Interleaved {
 public:
   uint32_t sample_rate = 0;
 
-  Interleaved() = default;
+  interleaved() = default;
 
-  Interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
+  interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
   : storage(frames * ch), frames_(frames), channels_(ch), sample_rate(sr)
   { assert(ch > 0); }
 
   // move-only
-  Interleaved(const Interleaved&) = delete;
-  Interleaved& operator=(const Interleaved&) = delete;
+  interleaved(const interleaved&) = delete;
+  interleaved& operator=(const interleaved&) = delete;
 
-  Interleaved(Interleaved&&) noexcept = default;
-  Interleaved& operator=(Interleaved&&) noexcept = default;
+  interleaved(interleaved&&) noexcept = default;
+  interleaved& operator=(interleaved&&) noexcept = default;
 
   [[nodiscard]] std::size_t frames()   const noexcept { return frames_; }
   [[nodiscard]] std::size_t channels() const noexcept { return channels_; }
@@ -146,12 +146,12 @@ public:
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
 
   template<class Elem>
-  class FrameViewBase {
+  class frame_view_base {
   protected:
     Elem* row_;
     std::size_t ch_;
 
-    FrameViewBase(Elem* row, std::size_t ch) : row_(row), ch_(ch) {}
+    frame_view_base(Elem* row, std::size_t ch) : row_(row), ch_(ch) {}
 
   public:
     [[nodiscard]] T peak() const noexcept {
@@ -168,13 +168,13 @@ public:
     }
   };
 
-  class FrameView : public FrameViewBase<T> {
+  class frame_view : public frame_view_base<T> {
   public:
-    FrameView(T* row, std::size_t ch)
-      : FrameViewBase<T>(row, ch) {}
+    frame_view(T* row, std::size_t ch)
+      : frame_view_base<T>(row, ch) {}
 
     template<typename U> requires std::is_arithmetic_v<U>
-    FrameView& operator*=(U gain) noexcept {
+    frame_view& operator*=(U gain) noexcept {
       const T g = static_cast<T>(gain);
       for (std::size_t c = 0; c < this->ch_; ++c)
         this->row_[c] *= g;
@@ -182,10 +182,10 @@ public:
     }
   };
 
-  class ConstFrameView : public FrameViewBase<const T> {
+  class const_frame_view : public frame_view_base<const T> {
   public:
-    ConstFrameView(const T* row, std::size_t ch)
-    : FrameViewBase<const T>(row, ch) {}
+    const_frame_view(const T* row, std::size_t ch)
+    : frame_view_base<const T>(row, ch) {}
   };
 
   // 2D element access via multi-arg operator[]
@@ -199,18 +199,18 @@ public:
   }
 
   // 1D frame view
-  FrameView operator[](std::size_t frame) noexcept {
+  frame_view operator[](std::size_t frame) noexcept {
     assert(frame < frames_);
-    return FrameView(storage.data() + frame * channels_, channels_);
+    return frame_view(storage.data() + frame * channels_, channels_);
   }
-  ConstFrameView operator[](std::size_t frame) const noexcept {
+  const_frame_view operator[](std::size_t frame) const noexcept {
     assert(frame < frames_);
-    return ConstFrameView(storage.data() + frame * channels_, channels_);
+    return const_frame_view(storage.data() + frame * channels_, channels_);
   }
 
   [[nodiscard]] T peak() const noexcept {
-    T p = T(0);
-    for (const T& s : storage) {
+    T p = T(0.0);
+    for (const T& s: storage) {
       T a = std::abs(s);
       if constexpr (std::is_floating_point_v<T>) {
         if (!std::isfinite(a)) continue;
@@ -227,15 +227,25 @@ public:
 
   // Scale all samples in-place by gain.
   template<typename U> requires std::is_arithmetic_v<U>
-  Interleaved& operator*=(U gain) noexcept
+  interleaved &operator*=(U gain) noexcept
   {
     const T g = static_cast<T>(gain);
-    for (T& s: storage) s *= g;
+    for (T &s: storage) s *= g;
     return *this;
   }
 };
 
-struct ebur128_deleter {
+template<std::floating_point T>
+void ensure_headroom(interleaved<T> &audio, T headroom_dB)
+{
+  const T headroom_linear = dbamp(headroom_dB);
+  const T peak = audio.peak();
+  if (peak > 0.f && peak > headroom_linear) {
+    audio *= headroom_linear / peak;
+  }
+}
+
+struct ebur128_state_deleter {
   void operator()(ebur128_state* p) const noexcept {
     if (p) {
       ebur128_destroy(&p);
@@ -243,31 +253,31 @@ struct ebur128_deleter {
   }
 };
 
-using ebur128_ptr = std::unique_ptr<ebur128_state, ebur128_deleter>;
+using ebur128_state_ptr = std::unique_ptr<ebur128_state, ebur128_state_deleter>;
 
 [[nodiscard]] std::expected<double, std::string>
-measure_lufs(const Interleaved<float>& t)
+measure_lufs(const interleaved<float> &audio)
 {
-  const unsigned int  channels   = t.channels();
-  const unsigned long samplerate = t.sample_rate;
-  const std::size_t   frames     = t.frames();
+  const unsigned int  channels    = audio.channels();
+  const unsigned long sample_rate = audio.sample_rate;
+  const std::size_t   frames      = audio.frames();
 
-  if (channels == 0 || samplerate == 0 || frames == 0) {
+  if (channels == 0 || sample_rate == 0 || frames == 0) {
     return std::unexpected("measure_lufs: empty or invalid track");
   }
 
-  ebur128_ptr st{ebur128_init(channels, samplerate, EBUR128_MODE_I)};
-  if (!st) {
+  ebur128_state_ptr state{ebur128_init(channels, sample_rate, EBUR128_MODE_I)};
+  if (!state) {
     return std::unexpected("measure_lufs: ebur128_init failed");
   }
 
-  if (int err = ebur128_add_frames_float(st.get(), t.data(), frames);
+  if (int err = ebur128_add_frames_float(state.get(), audio.data(), frames);
       err != EBUR128_SUCCESS) {
     return std::unexpected("measure_lufs: ebur128_add_frames_float failed");
   }
 
   double lufs = 0.0;
-  if (int err = ebur128_loudness_global(st.get(), &lufs);
+  if (int err = ebur128_loudness_global(state.get(), &lufs);
       err != EBUR128_SUCCESS) {
     return std::unexpected("measure_lufs: ebur128_loudness_global failed");
   }
@@ -275,11 +285,12 @@ measure_lufs(const Interleaved<float>& t)
   return lufs;
 }
 
-[[nodiscard]] std::expected<Interleaved<float>, std::string> change_tempo(
-  const Interleaved<float>& in,
+[[nodiscard]] std::expected<interleaved<float>, std::string>
+change_tempo(
+  const interleaved<float>& in,
   double from_bpm, double to_bpm,
   uint32_t to_rate,
-  int converter_type
+  int src_type
 ) {
   const std::size_t channels     = in.channels();
   const std::size_t in_frames_sz = in.frames();
@@ -329,7 +340,7 @@ measure_lufs(const Interleaved<float>& t)
     ));
   const auto ch = static_cast<int>(channels);
 
-  Interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
+  interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
 
   SRC_DATA data{};
   data.data_in       = in.data();
@@ -339,7 +350,7 @@ measure_lufs(const Interleaved<float>& t)
   data.end_of_input  = 1;
   data.src_ratio     = ratio;
 
-  if (const int err = src_simple(&data, converter_type, ch); err != 0)
+  if (const int err = src_simple(&data, src_type, ch); err != 0)
     return std::unexpected(std::string(src_strerror(err)));
 
   out.resize(static_cast<std::size_t>(data.output_frames_gen));
@@ -348,20 +359,20 @@ measure_lufs(const Interleaved<float>& t)
 }
 
 // Fade curve for envelopes / crossfades.
-enum class FadeCurve {
+enum class fade_curve {
   Linear,
   Sine,  // sine-shaped equal-power style fade
 };
 
 // Map a normalized 0..1 parameter to a gain using the chosen curve.
-// For FadeCurve::Sine we use a sine-shaped equal-power style curve.
-[[nodiscard]] inline float apply_fade_curve(FadeCurve curve, double x) noexcept {
+// For fade_curve::Sine we use a sine-shaped equal-power style curve.
+[[nodiscard]] inline float apply_fade_curve(fade_curve curve, double x) noexcept {
   x = std::clamp(x, 0.0, 1.0);
   switch (curve) {
-    case FadeCurve::Linear:
+    case fade_curve::Linear:
       return static_cast<float>(x);
 
-    case FadeCurve::Sine: {
+    case fade_curve::Sine: {
       // Equal-power style fade: sin(pi/2 * x)
       return static_cast<float>(std::sin(0.5 * std::numbers::pi_v<double> * x));
     }
@@ -376,7 +387,7 @@ enum class FadeCurve {
   size_t totalFrames,
   double firstCue,
   double lastCue,
-  FadeCurve curve = FadeCurve::Sine
+  fade_curve curve = fade_curve::Sine
 ) noexcept
 {
   if (totalFrames == 0) return 0.0f;
@@ -870,7 +881,7 @@ struct TrackDB {
 
 struct PlayerState {
   std::atomic<bool> playing{false};
-  std::shared_ptr<Interleaved<float>> track; // set before play; not swapped while playing
+  std::shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
   std::atomic<double> upbeatBeats{0.0};
   std::atomic<double> timeOffsetSec{0.0};
@@ -905,7 +916,7 @@ std::vector<MixCue> g_mix_cues;
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
-[[nodiscard]] Interleaved<float> load_track(std::filesystem::path file)
+[[nodiscard]] interleaved<float> load_track(std::filesystem::path file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
@@ -917,7 +928,7 @@ double g_mix_bpm = 120.0;
   if (sr <= 0) {
     throw std::runtime_error("Invalid sample rate in file: " + file.string());
   }
-  Interleaved<float> track(static_cast<uint32_t>(sr), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
+  interleaved<float> track(static_cast<uint32_t>(sr), static_cast<std::size_t>(sf.channels()), static_cast<std::size_t>(frames));
 
   const sf_count_t read_frames = sf.readf(track.data(), frames);
   if (read_frames < 0) {
@@ -930,7 +941,7 @@ double g_mix_bpm = 120.0;
   return track;
 }
 
-[[nodiscard]] float detect_bpm(const Interleaved<float>& track)
+[[nodiscard]] float detect_bpm(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
     throw std::invalid_argument("detect_bpm: invalid or empty track");
@@ -978,7 +989,7 @@ double g_mix_bpm = 120.0;
   return bpm;
 }
 
-void apply_two_pass_limiter_db(Interleaved<float>& buf,
+void apply_two_pass_limiter_db(interleaved<float>& buf,
                                float ceiling_dB = -1.0f,
                                float max_attack_db_per_s = 200.0f,
                                float max_release_db_per_s = 40.0f)
@@ -1020,10 +1031,10 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-[[nodiscard]] std::shared_ptr<Interleaved<float>> build_mix_track(
+[[nodiscard]] std::shared_ptr<interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
   std::optional<double> force_bpm = std::nullopt,
-  int converter_type = SRC_LINEAR
+  int src_type = SRC_LINEAR
 ) {
   if (files.empty()) return {};
 
@@ -1054,7 +1065,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 
   struct Item {
     TrackInfo info;
-    Interleaved<float> res;
+    interleaved<float> res;
     double firstCue;
     double lastCue;
     double lufs;
@@ -1065,26 +1076,20 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
   // Parallel per-track processing with std::async (exceptions propagate via future::get)
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
     [&](TrackInfo const& info) {
-      Interleaved<float> t = load_track(info.filename);
+      interleaved<float> t = load_track(info.filename);
 
       // Pre-resample peak headroom
-      const float targetHeadroom = dbamp(kHeadroomDB);
-      const float peak_in = t.peak();
-      if (peak_in > 0.f && peak_in > targetHeadroom) {
-        const float gain = targetHeadroom / peak_in;
-        t *= gain;
-      }
+      ensure_headroom(t, kHeadroomDB);
 
-      return change_tempo(t, info.bpm, bpm, outRate, converter_type)
-      .and_then(
-        [&](Interleaved<float> res) {
-	  size_t frames = res.frames();
+      return change_tempo(t, info.bpm, bpm, outRate, src_type).and_then(
+        [&](interleaved<float> audio) {
+	  size_t frames = audio.frames();
 
 	  int firstBar = info.cue_bars.front();
 	  int lastBar  = info.cue_bars.back();
-	  double shiftOut = info.upbeat_beats * fpb + info.time_offset_sec * (double)outRate;
-	  double firstCue = shiftOut + (double)(firstBar - 1) * (double)info.beats_per_bar * fpb;
-	  double lastCue  = shiftOut + (double)(lastBar  - 1) * (double)info.beats_per_bar * fpb;
+	  const double shiftOut = info.upbeat_beats * fpb + info.time_offset_sec * outRate;
+	  double firstCue = shiftOut + (firstBar - 1) * info.beats_per_bar * fpb;
+	  double lastCue  = shiftOut + (lastBar - 1) * info.beats_per_bar * fpb;
 
 	  // Clamp
 	  if (frames == 0) { firstCue = lastCue = 0.0; }
@@ -1093,17 +1098,17 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
 	    lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
 	  }
 
-          return measure_lufs(res).and_then(
+          return measure_lufs(audio).and_then(
             [&](double lufs) -> std::expected<Item, std::string> {
 	      return Item{
-                info, std::move(res), firstCue, lastCue, lufs
+                info, std::move(audio), firstCue, lastCue, lufs
               };
             }
           );
         }
       ).transform_error(
-        [&](std::string err) {
-          return info.filename.generic_string() + ": " + err;
+        [&](std::string error_msg) {
+          return info.filename.generic_string() + ": " + error_msg;
         }
       );
     }
@@ -1138,7 +1143,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
     totalFrames = std::max(totalFrames, offsetFrames + it.res.frames());
   }
 
-  auto out = std::make_shared<Interleaved<float>>(outRate, (size_t)outCh, totalFrames);
+  auto out = std::make_shared<interleaved<float>>(outRate, (size_t)outCh, totalFrames);
   std::fill_n(out->data(), out->samples(), 0.0f);
 
   // Mix down to out channels
@@ -1157,7 +1162,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         it.res.frames(),
         it.firstCue,
         it.lastCue,
-        FadeCurve::Sine  // sine-shaped equal-power style fade
+        fade_curve::Sine  // sine-shaped equal-power style fade
       ) * gain_lin;
       if (a <= 0.0f) continue;
 
@@ -1166,7 +1171,7 @@ void apply_two_pass_limiter_db(Interleaved<float>& buf,
         (*out)[outF, ch] += a * it.res[f, sC];
       }
     }
-    it.res = Interleaved<float>();
+    it.res = interleaved<float>();
   }
 
   // Final offline two-pass limiter for transparent ceiling control
@@ -1446,14 +1451,14 @@ void register_volume_command(REPL& repl, std::string label) {
 
 void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
 {
-  Interleaved<float> t;
+  interleaved<float> t;
   try {
     t = load_track(f);
   } catch (const std::exception& e) {
     std::println(std::cerr, "Error: {}", e.what());
     return;
   }
-  auto tr = std::make_shared<Interleaved<float>>(std::move(t));
+  auto tr = std::make_shared<interleaved<float>>(std::move(t));
 
   double guessedBpm = 0.0;
 
