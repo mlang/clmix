@@ -1194,7 +1194,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
     // Done with this tracks audio
     it.res.clear();
-    is.res.shrink_to_fit();
+    it.res.shrink_to_fit();
   }
 
   // Final offline two-pass limiter for transparent ceiling control
