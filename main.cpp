@@ -1881,8 +1881,8 @@ bool export_current_mix(const std::filesystem::path& outPath)
                      SF_FORMAT_WAV | SF_FORMAT_PCM_24,
                      static_cast<int>(mixTrack->channels()),
                      static_cast<int>(mixTrack->sample_rate));
-    if (sf.error()) {
-      std::println(std::cerr, "Failed to open output file: {}", outPath.generic_string());
+    if (sf.error() != SF_ERR_NO_ERROR) {
+      std::println(std::cerr, "{}: {}", outPath.generic_string(), sf.strError());
       return false;
     }
 
