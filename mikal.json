@@ -667,6 +667,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        17,
+        193
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Zero Three - Bandcamp Edition/05 - Park Shadow - Streetwise.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 165.0,
       "cue_bars": [
         17,
