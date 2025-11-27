@@ -2194,18 +2194,36 @@ int main(int argc, char** argv)
   });
 
   repl.register_command("tags", "List all tags present in track DB", [&](std::span<const std::string>){
-    std::set<std::string> all;
+    // Count how many tracks have each tag
+    std::map<std::string, std::size_t> counts;
     for (const auto& [path, ti] : g_db.items) {
-      all.insert(ti.tags.begin(), ti.tags.end());
+      (void)path;
+      for (const auto& tag : ti.tags) {
+        ++counts[tag];
+      }
     }
-    if (all.empty()) {
+
+    if (counts.empty()) {
       std::println(std::cout, "(no tags)");
       return;
     }
+
+    // Move to vector and sort by count (descending), then by tag name
+    std::vector<std::pair<std::string, std::size_t>> v;
+    v.reserve(counts.size());
+    for (auto& [tag, cnt] : counts) {
+      v.emplace_back(tag, cnt);
+    }
+
+    std::ranges::sort(v, [](auto const& a, auto const& b) {
+      if (a.second != b.second) return a.second > b.second; // more tracks first
+      return a.first < b.first;                             // tie-break by name
+    });
+
     bool first = true;
-    for (const auto& tag : all) {
+    for (auto const& [tag, cnt] : v) {
       if (!first) std::cout << ", ";
-      std::cout << tag;
+      std::cout << tag << " (" << cnt << ")";
       first = false;
     }
     std::cout << "\n";
