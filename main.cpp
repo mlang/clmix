@@ -47,10 +47,6 @@
 
 #include "vendor/mdspan.hpp"
 
-// We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
-template<typename T>
-using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
-
 #include <readline/history.h>
 #include <readline/readline.h>
 
@@ -72,25 +68,28 @@ extern "C" {
 
 namespace {
 
+// We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
+template<typename T>
+using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
+
 using nlohmann::json;
+using std::expected, std::unexpected;
+using std::shared_ptr, std::unique_ptr;
+using std::string, std::string_view;
 
 constexpr float kHeadroomDB = -2.0f;
 
 template<std::floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
-{
-  return std::pow(T(10.0), db * T(0.05));
-}
+{ return std::pow(T(10.0), db * T(0.05)); }
 
 template<std::floating_point T>
 [[nodiscard]] constexpr T ampdb(T amp) noexcept
-{
-  return T(20.0) * std::log10(amp);
-}
+{ return T(20.0) * std::log10(amp); }
 
 template<typename T>
 requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
-[[nodiscard]] std::expected<T, std::string> parse_number(std::string_view s)
+[[nodiscard]] expected<T, string> parse_number(string_view s)
 {
   static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
   T v{};
@@ -112,10 +111,10 @@ requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
 
   constexpr std::errc ok{};
   if (r.ec == ok) {
-    if (r.ptr != e) return std::unexpected(std::string("trailing characters"));
+    if (r.ptr != e) return unexpected(string("trailing characters"));
     return v;
   }
-  return std::unexpected(to_msg(r.ec));
+  return unexpected(to_msg(r.ec));
 }
 
 template<typename T>
@@ -257,9 +256,9 @@ struct ebur128_state_deleter {
   }
 };
 
-using ebur128_state_ptr = std::unique_ptr<ebur128_state, ebur128_state_deleter>;
+using ebur128_state_ptr = unique_ptr<ebur128_state, ebur128_state_deleter>;
 
-[[nodiscard]] std::expected<double, std::string>
+[[nodiscard]] expected<double, string>
 measure_lufs(const interleaved<float> &audio)
 {
   const unsigned int  channels    = audio.channels();
@@ -267,29 +266,29 @@ measure_lufs(const interleaved<float> &audio)
   const std::size_t   frames      = audio.frames();
 
   if (channels == 0 || sample_rate == 0 || frames == 0) {
-    return std::unexpected("measure_lufs: empty or invalid track");
+    return unexpected("measure_lufs: empty or invalid track");
   }
 
   ebur128_state_ptr state{ebur128_init(channels, sample_rate, EBUR128_MODE_I)};
   if (!state) {
-    return std::unexpected("measure_lufs: ebur128_init failed");
+    return unexpected("measure_lufs: ebur128_init failed");
   }
 
   if (int err = ebur128_add_frames_float(state.get(), audio.data(), frames);
       err != EBUR128_SUCCESS) {
-    return std::unexpected("measure_lufs: ebur128_add_frames_float failed");
+    return unexpected("measure_lufs: ebur128_add_frames_float failed");
   }
 
   double lufs = 0.0;
   if (int err = ebur128_loudness_global(state.get(), &lufs);
       err != EBUR128_SUCCESS) {
-    return std::unexpected("measure_lufs: ebur128_loudness_global failed");
+    return unexpected("measure_lufs: ebur128_loudness_global failed");
   }
 
   return lufs;
 }
 
-[[nodiscard]] std::expected<interleaved<float>, std::string>
+[[nodiscard]] expected<interleaved<float>, string>
 change_tempo(
   const interleaved<float>& in,
   double from_bpm, double to_bpm,
@@ -309,9 +308,9 @@ change_tempo(
 
   // libsamplerate constraints: still return error on overflow.
   if (!std::in_range<long>(in_frames_sz))
-    return std::unexpected(std::string(
+    return unexpected(
       "Input too large for libsamplerate (frame count exceeds 'long')."
-    ));
+    );
 
   const long in_frames = static_cast<long>(in_frames_sz);
 
@@ -331,17 +330,17 @@ change_tempo(
   const auto   est_out_frames_sz = static_cast<std::size_t>(est_out_frames_d);
 
   if (!std::in_range<long>(est_out_frames_sz))
-    return std::unexpected(std::string(
+    return unexpected(
       "Output too large for libsamplerate (frame count exceeds 'long')."
-    ));
+    );
 
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
   // libsamplerate channel constraint: still return error.
   if (!std::in_range<int>(channels))
-    return std::unexpected(std::string(
+    return unexpected(
       "Channel count too large for libsamplerate."
-    ));
+    );
   const auto ch = static_cast<int>(channels);
 
   interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
@@ -355,7 +354,7 @@ change_tempo(
   data.src_ratio     = ratio;
 
   if (const int err = src_simple(&data, src_type, ch); err != 0)
-    return std::unexpected(std::string(src_strerror(err)));
+    return unexpected(src_strerror(err));
 
   out.resize(static_cast<std::size_t>(data.output_frames_gen));
 
@@ -500,7 +499,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TrackInfo,
 
 class Matcher {
   struct Node;
-  using Ptr = std::shared_ptr<const Node>;
+  using Ptr = shared_ptr<const Node>;
 
   struct Node {
     struct Symbol { std::string name; };
@@ -885,7 +884,7 @@ struct track_database {
 
 struct player_state {
   std::atomic<bool> playing{false};
-  std::shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
+  shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
   std::atomic<double> upbeatBeats{0.0};
   std::atomic<double> timeOffsetSec{0.0};
@@ -920,22 +919,18 @@ std::vector<MixCue> g_mix_cues;
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
-[[nodiscard]] std::expected<interleaved<float>, std::string>
+[[nodiscard]] expected<interleaved<float>, string>
 load_track(const std::filesystem::path& file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
-    return std::unexpected(
-      "Failed to open audio file: " + file.generic_string()
-    );
+    return unexpected("Failed to open audio file: " + file.generic_string());
   }
 
   const sf_count_t frames = sf.frames();
   const int sr = sf.samplerate();
   if (sr <= 0) {
-    return std::unexpected(
-      "Invalid sample rate in file: " + file.generic_string()
-    );
+    return unexpected("Invalid sample rate in file: " + file.generic_string());
   }
 
   interleaved<float> track(
@@ -946,7 +941,7 @@ load_track(const std::filesystem::path& file)
 
   const sf_count_t read_frames = sf.readf(track.data(), frames);
   if (read_frames < 0) {
-    return std::unexpected(
+    return unexpected(
       "Failed to read audio data from file: " + file.generic_string()
     );
   }
@@ -967,8 +962,8 @@ load_track(const std::filesystem::path& file)
   const uint_t hop_s = 512;
   const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
-  using tempo_ptr = std::unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
-  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+  using tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
+  using fvec_ptr  = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
   tempo_ptr tempo{ new_aubio_tempo((char*)"default", win_s, hop_s, samplerate), &del_aubio_tempo };
   if (!tempo) {
@@ -1047,7 +1042,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
-[[nodiscard]] std::shared_ptr<interleaved<float>> build_mix_track(
+[[nodiscard]] shared_ptr<interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
   std::optional<double> force_bpm = std::nullopt,
   int src_type = SRC_LINEAR
@@ -1087,11 +1082,11 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
     double lufs;
     double offset = 0.0;
   };
-  std::vector<std::expected<Item, std::string>> items_exp(files.size());
+  std::vector<expected<Item, string>> items_exp(files.size());
 
   // Parallel per-track processing
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
-    [&](TrackInfo const& info) -> std::expected<Item, std::string> {
+    [&](TrackInfo const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
           // Pre-resample peak headroom
@@ -1099,7 +1094,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
           return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
-        [&](interleaved<float> audio) -> std::expected<Item, std::string> {
+        [&](interleaved<float> audio) -> expected<Item, string> {
           size_t frames = audio.frames();
 
           int firstBar = info.cue_bars.front();
@@ -1120,7 +1115,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
           }
 
           return measure_lufs(audio).and_then(
-            [&](double lufs) -> std::expected<Item, std::string> {
+            [&](double lufs) -> expected<Item, string> {
               return Item{
                 info, std::move(audio), first_cue, last_cue, lufs
               };
@@ -1403,7 +1398,7 @@ public:
     while (running_) {
       char* line = readline(prompt);
       if (!line) break; // EOF (Ctrl-D)
-      std::unique_ptr<char, decltype(&std::free)> guard(line, &std::free);
+      unique_ptr<char, decltype(&std::free)> guard(line, &std::free);
 
       std::string input(line);
       if (input.empty()) continue;
