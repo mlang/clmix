@@ -785,7 +785,7 @@ public:
   }
 };
 
-struct TrackDB {
+struct track_database {
   std::map<std::filesystem::path, TrackInfo> items;
 
   static std::filesystem::path norm(const std::filesystem::path& p) {
@@ -883,7 +883,7 @@ struct TrackDB {
   }
 };
 
-struct PlayerState {
+struct player_state {
   std::atomic<bool> playing{false};
   std::shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
   std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
@@ -900,8 +900,8 @@ struct PlayerState {
   Metronome metro;
 };
 
-PlayerState g_player;
-TrackDB g_db;
+player_state g_player;
+track_database g_db;
 
 uint32_t g_device_rate = 44100;
 uint32_t g_device_channels = 2;
@@ -1246,7 +1246,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 }
 
 void play(
-  PlayerState &player, multichannel<float> output, uint32_t devRate
+  player_state &player, multichannel<float> output, uint32_t devRate
 )
 {
   if (player.track) {
@@ -1313,7 +1313,7 @@ void play(
 
 void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
 {
-  PlayerState &player = *static_cast<PlayerState*>(pDevice->pUserData);
+  player_state &player = *static_cast<player_state*>(pDevice->pUserData);
 
   if (player.playing.load()) {
     multichannel<float> output(static_cast<float*>(pOutput),
@@ -1993,7 +1993,7 @@ int main(int argc, char** argv)
     g_mix_tracks = std::move(all);
   }
 
-  // Non-interactive export mode: no miniaudio, no REPL, no rebuild_mix_into_player.
+  // Non-interactive export mode
   if (opt_export_path) {
     if (g_mix_tracks.empty()) {
       std::println(std::cerr, "No tracks in mix.");
@@ -2013,17 +2013,18 @@ int main(int argc, char** argv)
   config.dataCallback      = callback;
   config.pUserData         = &g_player;
   ma_device device;
-  ma_result res = ma_device_init(nullptr, &config, &device);
-  if (res != MA_SUCCESS) {
-    std::cerr << "Audio device init failed: " << ma_result_description(res) << "\n";
-    return 1;
+  if (ma_result res = ma_device_init(nullptr, &config, &device);
+      res != MA_SUCCESS) {
+    std::println(std::cerr, "Audio device init failed: {}",
+                 ma_result_description(res));
+    return EXIT_FAILURE;
   }
 
-  res = ma_device_start(&device);
-  if (res != MA_SUCCESS) {
-    std::cerr << "Audio device start failed: " << ma_result_description(res) << "\n";
+  if (ma_result res = ma_device_start(&device); res != MA_SUCCESS) {
+    std::println(std::cerr, "Audio device start failed: {}",
+                 ma_result_description(res));
     ma_device_uninit(&device);
-    return 1;
+    return EXIT_FAILURE;
   }
 
   g_device_rate = device.sampleRate;
@@ -2037,7 +2038,7 @@ int main(int argc, char** argv)
     } catch (const std::exception& e) {
       std::println(std::cerr, "Failed to build initial mix: {}", e.what());
       ma_device_uninit(&device);
-      return 1;
+      return EXIT_FAILURE;
     }
   } else if (opt_bpm) {
     std::println(std::cerr, "Warning: --bpm specified but no tracks in mix.");
