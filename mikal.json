@@ -362,7 +362,8 @@
       "filename": "DnB/Big Bud/Children of Jah/04 - Stinkweed.flac",
       "tags": [
         "dnb",
-        "jazz"
+        "jazz",
+        "flute"
       ],
       "time_offset_sec": 0.275,
       "upbeat_beats": 0.0
@@ -520,6 +521,21 @@
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": -0.75
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        17,
+        257
+      ],
+      "filename": "DnB/Inperspective Records/Infamy - SE4008 - Class of '06 EP/01 - Rebecca.flac",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset_sec": 0.08,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
