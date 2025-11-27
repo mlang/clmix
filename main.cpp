@@ -384,33 +384,33 @@ enum class fade_curve {
   return static_cast<float>(x); // fallback
 }
 
-// Piecewise fade: fade-in from start->firstCue, unity between [firstCue,lastCue],
-// fade-out from lastCue->end. Uses a chosen curve (typically Sine = equal-power style).
+// Piecewise fade: fade-in from start->first_cue, unity between [first_cue,last_cue],
+// fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
 [[nodiscard]] inline float fade_for_frame(
   size_t frameIndex,
-  size_t totalFrames,
-  double firstCue,
-  double lastCue,
+  size_t total_frames,
+  double first_cue,
+  double last_cue,
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
-  if (totalFrames == 0) return 0.0f;
-  if (lastCue < firstCue) std::swap(lastCue, firstCue);
+  if (total_frames == 0) return 0.0f;
+  if (last_cue < first_cue) std::swap(last_cue, first_cue);
 
   const double f = static_cast<double>(frameIndex);
 
-  // Fade-in region: [0, firstCue]
-  if (f <= firstCue) {
-    if (firstCue <= 0.0) return 1.0f; // degenerate: no fade-in
-    const double p = f / firstCue;    // 0..1
+  // Fade-in region: [0, first_cue]
+  if (f <= first_cue) {
+    if (first_cue <= 0.0) return 1.0f; // degenerate: no fade-in
+    const double p = f / first_cue;    // 0..1
     return apply_fade_curve(curve, p);
   }
 
-  // Fade-out region: [lastCue, totalFrames)
-  if (f >= lastCue) {
-    const double denom = static_cast<double>(totalFrames) - lastCue;
+  // Fade-out region: [last_cue, total_frames)
+  if (f >= last_cue) {
+    const double denom = static_cast<double>(total_frames) - last_cue;
     if (denom <= 1e-12) return 0.0f;  // degenerate: no tail
-    const double p = (f - lastCue) / denom; // 0..1
+    const double p = (f - last_cue) / denom; // 0..1
     // For fade-out, invert the curve: 1 - curve(p)
     return 1.0f - apply_fade_curve(curve, p);
   }
@@ -1073,17 +1073,17 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   g_mix_bpm = bpm;
   g_mix_bpb = tracks.front().beats_per_bar;
 
-  const uint32_t outRate = g_device_rate;
+  const uint32_t out_rate = g_device_rate;
   if (!std::in_range<int>(g_device_channels))
     throw std::invalid_argument("Device channel count not representable as int");
   const int outCh = static_cast<int>(g_device_channels);
-  const double fpb = (double)outRate * 60.0 / bpm;
+  const double fpb = (double)out_rate * 60.0 / bpm;
 
   struct Item {
     TrackInfo info;
-    interleaved<float> res;
-    double firstCue;
-    double lastCue;
+    interleaved<float> audio;
+    double first_cue;
+    double last_cue;
     double lufs;
     double offset = 0.0;
   };
@@ -1096,7 +1096,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
         [&](interleaved<float> audio) {
           // Pre-resample peak headroom
           ensure_headroom(audio, kHeadroomDB);
-          return change_tempo(audio, info.bpm, bpm, outRate, src_type);
+          return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
         [&](interleaved<float> audio) -> std::expected<Item, std::string> {
@@ -1105,24 +1105,24 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
           int firstBar = info.cue_bars.front();
           int lastBar  = info.cue_bars.back();
           const double shiftOut =
-            info.upbeat_beats * fpb + info.time_offset_sec * outRate;
-          double firstCue =
+            info.upbeat_beats * fpb + info.time_offset_sec * out_rate;
+          double first_cue =
             shiftOut + (firstBar - 1) * info.beats_per_bar * fpb;
-          double lastCue  =
+          double last_cue  =
             shiftOut + (lastBar  - 1) * info.beats_per_bar * fpb;
 
           // Clamp
           if (frames == 0) {
-            firstCue = lastCue = 0.0;
+            first_cue = last_cue = 0.0;
           } else {
-            firstCue = std::clamp(firstCue, 0.0, (double)(frames - 1));
-            lastCue  = std::clamp(lastCue,  0.0, (double)(frames - 1));
+            first_cue = std::clamp(first_cue, 0.0, (double)(frames - 1));
+            last_cue  = std::clamp(last_cue,  0.0, (double)(frames - 1));
           }
 
           return measure_lufs(audio).and_then(
             [&](double lufs) -> std::expected<Item, std::string> {
               return Item{
-                info, std::move(audio), firstCue, lastCue, lufs
+                info, std::move(audio), first_cue, last_cue, lufs
               };
             }
           );
@@ -1148,9 +1148,9 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
   // Offsets: align last cue of A with first cue of B
   if (!items.empty()) {
-    items[0].offset = -items[0].firstCue;
+    items[0].offset = -items[0].first_cue;
     for (size_t i = 1; i < items.size(); ++i) {
-      items[i].offset = items[i-1].offset + items[i-1].lastCue - items[i].firstCue;
+      items[i].offset = items[i-1].offset + items[i-1].last_cue - items[i].first_cue;
     }
     double minOff = 0.0;
     for (auto& it : items) minOff = std::min(minOff, it.offset);
@@ -1158,44 +1158,44 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 
   // Determine total frames
-  size_t totalFrames = 0;
+  size_t total_frames = 0;
   for (auto& it : items) {
     const auto offsetFrames = static_cast<std::size_t>(std::ceil(it.offset));
-    totalFrames = std::max(totalFrames, offsetFrames + it.res.frames());
+    total_frames = std::max(total_frames, offsetFrames + it.audio.frames());
   }
 
-  auto out = std::make_shared<interleaved<float>>(outRate, (size_t)outCh, totalFrames);
+  auto out = std::make_shared<interleaved<float>>(out_rate, (size_t)outCh, total_frames);
   std::fill_n(out->data(), out->samples(), 0.0f);
 
   // Mix down to out channels
   const auto outChS = static_cast<size_t>(outCh);
   for (auto& it : items) {
-    const size_t inChS = it.res.channels();
+    const size_t inChS = it.audio.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
     std::println("gain_db: {}", ampdb(gain_lin));
-    for (size_t f = 0; f < it.res.frames(); ++f) {
+    for (size_t f = 0; f < it.audio.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
-      if (outF >= totalFrames) break;
+      if (outF >= total_frames) break;
       const auto a = fade_for_frame(
         f,
-        it.res.frames(),
-        it.firstCue,
-        it.lastCue,
+        it.audio.frames(),
+        it.first_cue,
+        it.last_cue,
         fade_curve::Sine  // sine-shaped equal-power style fade
       ) * gain_lin;
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         const size_t sC = ch % inChS;
-        (*out)[outF, ch] += a * it.res[f, sC];
+        (*out)[outF, ch] += a * it.audio[f, sC];
       }
     }
 
     // Done with this tracks audio
-    it.res.clear();
-    it.res.shrink_to_fit();
+    it.audio.clear();
+    it.audio.shrink_to_fit();
   }
 
   // Final offline two-pass limiter for transparent ceiling control
@@ -1206,7 +1206,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   for (auto& it : items) {
     for (int bar : it.info.cue_bars) {
       double shiftOut = it.info.upbeat_beats * fpb
-                        + it.info.time_offset_sec * (double)outRate;
+                        + it.info.time_offset_sec * (double)out_rate;
       double local = shiftOut
                      + (double)(bar - 1) * (double)it.info.beats_per_bar * fpb;
       double mixFrame = it.offset + local;
@@ -1523,9 +1523,9 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   auto print_estimated_bars = [&](){
     auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
     unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
-    size_t totalFrames = tr->frames();
+    size_t total_frames = tr->frames();
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
-    double beats = (double)totalFrames / framesPerBeat;
+    double beats = (double)total_frames / framesPerBeat;
     double bars = beats / static_cast<double>(bpbNow);
     std::println(std::cout, "Estimated bars: {:.2f}", bars);
   };
@@ -1744,8 +1744,8 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
       double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
       double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
-      size_t totalFrames = tr->frames();
-      if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
+      size_t total_frames = tr->frames();
+      if (target >= (double)total_frames) target = (double)total_frames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
@@ -2159,8 +2159,8 @@ int main(int argc, char** argv)
       double shift = g_player.upbeatBeats.load() * framesPerBeat
                      + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
       double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
-      size_t totalFrames = g_player.track->frames();
-      if (target >= (double)totalFrames) target = (double)totalFrames - 1.0;
+      size_t total_frames = g_player.track->frames();
+      if (target >= (double)total_frames) target = (double)total_frames - 1.0;
       if (target < 0.0) target = 0.0;
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
