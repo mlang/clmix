@@ -362,8 +362,8 @@
       "filename": "DnB/Big Bud/Children of Jah/04 - Stinkweed.flac",
       "tags": [
         "dnb",
-        "jazz",
-        "flute"
+        "flute",
+        "jazz"
       ],
       "time_offset_sec": 0.275,
       "upbeat_beats": 0.0
@@ -550,6 +550,20 @@
         "jazz"
       ],
       "time_offset_sec": 0.035,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        65,
+        193
+      ],
+      "filename": "DnB/Mahakala/The Exodus.flac",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset_sec": 0.03,
       "upbeat_beats": 0.0
     },
     {
