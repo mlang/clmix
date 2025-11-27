@@ -370,6 +370,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        65,
+        273
+      ],
+      "filename": "DnB/Blu Mar Ten/Blu Mar Ten - Made of Air-171141717.mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.01,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 132.0,
       "cue_bars": [
         35,
@@ -386,6 +400,7 @@
       "beats_per_bar": 4,
       "bpm": 172.0,
       "cue_bars": [
+        33,
         49,
         177
       ],
@@ -393,7 +408,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset_sec": 0.01,
       "upbeat_beats": 2.0
     },
     {
@@ -579,6 +594,34 @@
       ],
       "time_offset_sec": 0.02,
       "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        49,
+        225
+      ],
+      "filename": "DnB/Naibu/Manœuvres/03 - Achille.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        1,
+        265
+      ],
+      "filename": "DnB/Paradox Music/Naibu - Again - Uncalled/01 - Again.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 8.0
     },
     {
       "beats_per_bar": 4,
