@@ -583,6 +583,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        17,
+        257
+      ],
+      "filename": "DnB/Mahakala/The Realms.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         17,
@@ -647,6 +661,21 @@
       "filename": "DnB/Seba/SECOPS009 - Warriors - Legion/02 - Legion.flac",
       "tags": [
         "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        49,
+        273
+      ],
+      "filename": "DnB/Straight Up Breakbeat/SUBB9604 - Dj Sofa - Junglist Respect/03 - Skatta.flac",
+      "tags": [
+        "Sofa",
+        "dnb"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
