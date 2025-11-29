@@ -1219,22 +1219,30 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
     }
   }
 
-  // Sort by frame, then by bar index for stability
-  std::sort(g_mix_cues.begin(), g_mix_cues.end(),
-            [](const MixCue& a, const MixCue& b) {
-              if (a.frame < b.frame) return true;
-              if (a.frame > b.frame) return false;
-              return a.bar < b.bar;
-            });
+  // Sort by global bar index only; stable_sort preserves insertion order
+  // for cues with the same bar, so the "later" track wins.
+  std::stable_sort(g_mix_cues.begin(), g_mix_cues.end(),
+                   [](const MixCue& a, const MixCue& b) {
+                     return a.bar < b.bar;
+                   });
 
-  // Remove near-duplicate cue frames caused by alignment overlaps
+  // Deduplicate by bar, keeping the last entry for each bar.
   {
-    constexpr double eps = 1e-6;
-    auto it = std::unique(g_mix_cues.begin(), g_mix_cues.end(),
-                          [](const MixCue& a, const MixCue& b){
-                            return std::abs(a.frame - b.frame) <= eps;
-                          });
-    g_mix_cues.erase(it, g_mix_cues.end());
+    std::vector<MixCue> deduped;
+    deduped.reserve(g_mix_cues.size());
+
+    std::size_t i = 0;
+    while (i < g_mix_cues.size()) {
+      std::size_t j = i + 1;
+      while (j < g_mix_cues.size() && g_mix_cues[j].bar == g_mix_cues[i].bar) {
+        ++j;
+      }
+      // [i, j) is a run of same bar; keep the last one (j-1)
+      deduped.push_back(g_mix_cues[j - 1]);
+      i = j;
+    }
+
+    g_mix_cues.swap(deduped);
   }
 
   return out;
