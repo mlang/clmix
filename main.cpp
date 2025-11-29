@@ -919,14 +919,13 @@ std::vector<MixCue> g_mix_cues;
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
-// RAII wrapper around miniaudio playback device.
+// RAII wrapper around miniaudio playback device, templated on callback type.
+template<class Callback>
 class miniplayer {
 public:
-  using callback_t = std::move_only_function<void(multichannel<float>, uint32_t)>;
-
   miniplayer(uint32_t sample_rate,
              uint32_t channels,
-             callback_t cb)
+             Callback cb)
   : callback_(std::move(cb))
   {
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
@@ -982,7 +981,7 @@ private:
   {
     (void)pInput;
     auto* self = static_cast<miniplayer*>(pDevice->pUserData);
-    if (!self || !self->callback_) return;
+    if (!self) return;
 
     multichannel<float> out(
       static_cast<float*>(pOutput),
@@ -992,8 +991,8 @@ private:
     self->callback_(out, pDevice->sampleRate);
   }
 
-  ma_device   device_{};
-  callback_t  callback_;
+  ma_device device_{};
+  Callback  callback_;
 };
 
 [[nodiscard]] expected<interleaved<float>, string>
@@ -2103,7 +2102,7 @@ int main(int argc, char** argv)
   // Interactive mode from here on: needs audio device and REPL.
 
   try {
-    miniplayer device(
+    auto device = miniplayer(
       /*sample_rate*/ 44100,
       /*channels*/    2,
       /*callback*/ [](multichannel<float> output, uint32_t devRate) {
