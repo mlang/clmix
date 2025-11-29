@@ -2106,6 +2106,8 @@ int main(int argc, char** argv)
       }
     );
 
+    device.start();
+
     g_device_rate = device.sample_rate();
     g_device_channels = device.channels();
 
