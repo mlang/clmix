@@ -882,24 +882,16 @@ struct track_database {
   }
 };
 
-// Slow-changing playback parameters, double-buffered between UI and audio thread.
-struct PlayerParams {
-  float  trackGainDB = 0.f;      // Track gain in dB (0 = unity; negative attenuates)
-  double upbeatBeats = 0.0;
-  double timeOffsetSec = 0.0;
-
-  // Seek control (source frames)
-  bool   seekPending = false;
-  double seekTargetFrames = 0.0;
-};
-
 struct player_state {
   std::atomic<bool> playing{false};
   shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
+  std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
+  std::atomic<double> upbeatBeats{0.0};
+  std::atomic<double> timeOffsetSec{0.0};
 
-  // Double-buffered control parameters: slots[front_index] is read by audio thread.
-  PlayerParams slots[2];
-  std::atomic<int> front_index{0};
+  // Seek control (source frames)
+  std::atomic<bool> seekPending{false};
+  std::atomic<double> seekTargetFrames{0.0};
 
   // Playback runtime (audio thread)
   double srcPos = 0.0;              // in source frames (fractional)
@@ -926,23 +918,6 @@ std::vector<MixCue> g_mix_cues;
 
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
-
-// Helper: UI thread updates params in the non-front slot and then flips front_index.
-template<typename F>
-void update_player_params(F&& fn)
-{
-  int front = g_player.front_index.load(std::memory_order_acquire);
-  int back  = 1 - front;
-  fn(g_player.slots[back]);
-  g_player.front_index.store(back, std::memory_order_release);
-}
-
-// Helper: audio thread snapshot of current params at start of callback.
-PlayerParams get_current_params_audio_thread()
-{
-  int idx = g_player.front_index.load(std::memory_order_acquire);
-  return g_player.slots[idx];
-}
 
 [[nodiscard]] expected<interleaved<float>, string>
 load_track(const std::filesystem::path& file)
@@ -1299,12 +1274,8 @@ void play(
 {
   if (player.track) {
     auto &track = *player.track;
-
-    // Snapshot slow-changing params once per callback.
-    PlayerParams params = get_current_params_audio_thread();
-
     const auto bpm = std::max(1.0, player.metro.bpm.load());
-    const float gainLin = dbamp(params.trackGainDB);
+    const float gainLin = dbamp(player.trackGainDB.load());
     const size_t srcCh = track.channels();
     const size_t totalSrcFrames = track.frames();
     if (totalSrcFrames == 0) return;
@@ -1312,14 +1283,14 @@ void play(
 
     const double framesPerBeatSrc = (double)track.sample_rate * 60.0 / (double)bpm;
     const double incrSrcPerOut = (double)track.sample_rate / (double)devRate;
-    const double shiftSrc = params.upbeatBeats * framesPerBeatSrc
-                            + params.timeOffsetSec * (double)track.sample_rate;
+    const double shiftSrc = player.upbeatBeats.load() * framesPerBeatSrc
+                            + player.timeOffsetSec.load() * (double)track.sample_rate;
 
     double pos = player.srcPos;
 
     for (size_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
-      if (params.seekPending) {
+      if (player.seekPending.load()) {
         unsigned bpbNow = std::max(1u, player.metro.bpb.load());
         const double adjNow  = std::max(0.0, pos - shiftSrc);
         const double adjNext = std::max(0.0, pos + incrSrcPerOut - shiftSrc);
@@ -1328,10 +1299,8 @@ void play(
         bool crossesBeat = (beatNext != beatNow);
         bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
-          pos = params.seekTargetFrames;
-          // Clear seekPending in the params slot we are currently using.
-          int idx = player.front_index.load(std::memory_order_acquire);
-          player.slots[idx].seekPending = false;
+          pos = player.seekTargetFrames.load();
+          player.seekPending.store(false);
           player.metro.prepare_after_seek(pos - shiftSrc, framesPerBeatSrc);
         }
       }
@@ -1503,8 +1472,7 @@ void register_volume_command(REPL& repl, std::string label) {
     "vol [dB] - get/set " + label + " volume in dB (0=unity, negative attenuates)",
     [label](std::span<const std::string> a){
       if (a.empty()) {
-        PlayerParams params = get_current_params_audio_thread();
-        float db = params.trackGainDB;
+        float db = g_player.trackGainDB.load();
         float lin = dbamp(db);
         std::println(std::cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
         return;
@@ -1518,9 +1486,7 @@ void register_volume_command(REPL& repl, std::string label) {
       }
       if (auto v = parse_number<float>(s)) {
         const float db = std::clamp(*v, -60.f, 12.f);
-        update_player_params([&](PlayerParams& p){
-          p.trackGainDB = db;
-        });
+        g_player.trackGainDB.store(db);
         float lin = dbamp(db);
         std::println(std::cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
       } else {
@@ -1568,16 +1534,14 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   // Initialize player state for this track (not playing yet)
   g_player.track = tr;
   g_player.srcPos = 0.0;
-  update_player_params([&](PlayerParams& p){
-    p.seekTargetFrames = 0.0;
-    p.seekPending = false;
-    p.upbeatBeats = ti.upbeat_beats;
-    p.timeOffsetSec = ti.time_offset_sec;
-    // keep existing trackGainDB
-  });
+  g_player.seekTargetFrames.store(0.0);
+  g_player.seekPending.store(false);
+  // keep existing volume
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(ti.bpm);
   g_player.metro.bpb.store(std::max(1u, ti.beats_per_bar));
+  g_player.upbeatBeats.store(ti.upbeat_beats);
+  g_player.timeOffsetSec.store(ti.time_offset_sec);
 
   auto print_estimated_bars = [&](){
     auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
@@ -1641,9 +1605,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
     }
     if (auto v = parse_number<double>(a[0]); v) {
       ti.upbeat_beats = *v;
-      update_player_params([&](PlayerParams& p){
-        p.upbeatBeats = *v;
-      });
+      g_player.upbeatBeats.store(*v);
       dirty = true;
       print_estimated_bars();
     } else {
@@ -1658,9 +1620,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
     }
     if (auto v = parse_number<double>(a[0]); v) {
       ti.time_offset_sec = *v;
-      update_player_params([&](PlayerParams& p){
-        p.timeOffsetSec = *v;
-      });
+      g_player.timeOffsetSec.store(*v);
       dirty = true;
       print_estimated_bars();
     } else {
@@ -1787,9 +1747,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       std::println(std::cerr, "No track loaded.");
       return;
     }
-    update_player_params([&](PlayerParams& p){
-      p.seekPending = false;
-    });
+    g_player.seekPending.store(false);
     g_player.playing.store(true);
   });
 
@@ -1815,15 +1773,11 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
         g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-        update_player_params([&](PlayerParams& p){
-          p.seekTargetFrames = target;
-          p.seekPending = false;
-        });
+        g_player.seekTargetFrames.store(target);
+        g_player.seekPending.store(false);
       } else {
-        update_player_params([&](PlayerParams& p){
-          p.seekTargetFrames = target;
-          p.seekPending = true;
-        });
+        g_player.seekTargetFrames.store(target);
+        g_player.seekPending.store(true);
       }
     } else {
       std::println(std::cerr, "Invalid bar number: {}", bar1.error());
@@ -1907,23 +1861,21 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   auto audio = build_mix_track(g_mix_tracks, bpm);
   g_player.track = audio;
   g_player.srcPos = 0.0;
-  update_player_params([&](PlayerParams& p){
-    p.seekPending = false;
-    p.seekTargetFrames = 0.0;
-    // keep existing trackGainDB
-    if (!g_mix_tracks.empty()) {
-      if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
-        p.upbeatBeats = ti0->upbeat_beats;
-        p.timeOffsetSec = ti0->time_offset_sec;
-      } else {
-        p.upbeatBeats = 0.0;
-        p.timeOffsetSec = 0.0;
-      }
-    }
-  });
+  g_player.seekPending.store(false);
+  g_player.seekTargetFrames.store(0.0);
+  // keep existing volume (persist across mix rebuilds)
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(g_mix_bpm);
   g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+  if (!g_mix_tracks.empty()) {
+    if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+      g_player.upbeatBeats.store(ti0->upbeat_beats);
+      g_player.timeOffsetSec.store(ti0->time_offset_sec);
+    } else {
+      g_player.upbeatBeats.store(0.0);
+      g_player.timeOffsetSec.store(0.0);
+    }
+  }
 }
 
 // Helper: export current mix (based on g_mix_tracks) to a file.
@@ -2220,9 +2172,7 @@ int main(int argc, char** argv)
         return;
       }
     }
-    update_player_params([&](PlayerParams& p){
-      p.seekPending = false;
-    });
+    g_player.seekPending.store(false);
     g_player.playing.store(true);
   });
 
@@ -2238,9 +2188,8 @@ int main(int argc, char** argv)
     if (auto bar1 = parse_number<int>(a[0]); bar1) {
       int bar0 = std::max(0, *bar1 - 1);
       double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
-      PlayerParams params = get_current_params_audio_thread();
-      double shift = params.upbeatBeats * framesPerBeat
-                     + params.timeOffsetSec * (double)g_player.track->sample_rate;
+      double shift = g_player.upbeatBeats.load() * framesPerBeat
+                     + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
       double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
       size_t total_frames = g_player.track->frames();
       if (target >= (double)total_frames) target = (double)total_frames - 1.0;
@@ -2248,15 +2197,11 @@ int main(int argc, char** argv)
       if (!g_player.playing.load()) {
         g_player.srcPos = target;
         g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-        update_player_params([&](PlayerParams& p){
-          p.seekTargetFrames = target;
-          p.seekPending = false;
-        });
+        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+        g_player.seekPending.store(false, std::memory_order_relaxed);
       } else {
-        update_player_params([&](PlayerParams& p){
-          p.seekTargetFrames = target;
-          p.seekPending = true;
-        });
+        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+        g_player.seekPending.store(true, std::memory_order_release);
       }
     } else {
       std::println(std::cerr, "Invalid bar number: {}", bar1.error());
