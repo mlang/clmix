@@ -919,6 +919,83 @@ std::vector<MixCue> g_mix_cues;
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
 
+// RAII wrapper around miniaudio playback device.
+class miniplayer {
+public:
+  using callback_t = std::move_only_function<void(multichannel<float>, uint32_t)>;
+
+  miniplayer(uint32_t sample_rate,
+             uint32_t channels,
+             callback_t cb)
+  : callback_(std::move(cb))
+  {
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format   = ma_format_f32;
+    config.playback.channels = channels;
+    config.sampleRate        = sample_rate;
+    config.noPreSilencedOutputBuffer = false;
+    config.dataCallback      = &miniplayer::ma_callback_trampoline;
+    config.pUserData         = this;
+
+    if (ma_result res = ma_device_init(nullptr, &config, &device_);
+        res != MA_SUCCESS) {
+      throw std::runtime_error(
+        std::string("Audio device init failed: ") +
+        ma_result_description(res)
+      );
+    }
+  }
+
+  miniplayer(const miniplayer&) = delete;
+  miniplayer& operator=(const miniplayer&) = delete;
+
+  ~miniplayer() {
+    ma_device_uninit(&device_);
+  }
+
+  void start() {
+    if (ma_result res = ma_device_start(&device_); res != MA_SUCCESS) {
+      throw std::runtime_error(
+        std::string("Audio device start failed: ") +
+        ma_result_description(res)
+      );
+    }
+  }
+
+  void stop() noexcept {
+    ma_device_stop(&device_); // ignore errors on stop
+  }
+
+  [[nodiscard]] uint32_t sample_rate() const noexcept {
+    return device_.sampleRate;
+  }
+
+  [[nodiscard]] uint32_t channels() const noexcept {
+    return device_.playback.channels;
+  }
+
+private:
+  static void ma_callback_trampoline(ma_device* pDevice,
+                                     void* pOutput,
+                                     const void* pInput,
+                                     ma_uint32 frameCount)
+  {
+    (void)pInput;
+    auto* self = static_cast<miniplayer*>(pDevice->pUserData);
+    if (!self || !self->callback_) return;
+
+    multichannel<float> out(
+      static_cast<float*>(pOutput),
+      static_cast<std::size_t>(frameCount),
+      static_cast<std::size_t>(pDevice->playback.channels)
+    );
+    self->callback_(out, pDevice->sampleRate);
+  }
+
+  ma_device   device_{};
+  callback_t  callback_;
+};
+
 [[nodiscard]] expected<interleaved<float>, string>
 load_track(const std::filesystem::path& file)
 {
@@ -1331,18 +1408,6 @@ void play(
     }
 
     player.srcPos = pos;
-  }
-}
-
-void callback(ma_device* pDevice, void* pOutput, const void* pInput, ma_uint32 frameCount)
-{
-  player_state &player = *static_cast<player_state*>(pDevice->pUserData);
-
-  if (player.playing.load()) {
-    multichannel<float> output(static_cast<float*>(pOutput),
-      frameCount, pDevice->playback.channels
-    );
-    play(player, output, pDevice->sampleRate);
   }
 }
 
@@ -2037,230 +2102,271 @@ int main(int argc, char** argv)
 
   // Interactive mode from here on: needs audio device and REPL.
 
-  ma_device_config config = ma_device_config_init(ma_device_type_playback);
-  config.playback.format   = ma_format_f32;
-  config.playback.channels = 2;
-  config.sampleRate        = 44100;
-  config.noPreSilencedOutputBuffer = false;
-  config.dataCallback      = callback;
-  config.pUserData         = &g_player;
-  ma_device device;
-  if (ma_result res = ma_device_init(nullptr, &config, &device);
-      res != MA_SUCCESS) {
-    std::println(std::cerr, "Audio device init failed: {}",
-                 ma_result_description(res));
-    return EXIT_FAILURE;
-  }
+  try {
+    miniplayer device(
+      /*sample_rate*/ 44100,
+      /*channels*/    2,
+      /*callback*/ [](multichannel<float> output, uint32_t devRate) {
+        if (g_player.playing.load()) {
+          play(g_player, output, devRate);
+        }
+      }
+    );
 
-  if (ma_result res = ma_device_start(&device); res != MA_SUCCESS) {
-    std::println(std::cerr, "Audio device start failed: {}",
-                 ma_result_description(res));
-    ma_device_uninit(&device);
-    return EXIT_FAILURE;
-  }
+    g_device_rate = device.sample_rate();
+    g_device_channels = device.channels();
 
-  g_device_rate = device.sampleRate;
-  g_device_channels = device.playback.channels;
+    // If we have any mix tracks (from --random or previous DB state) and/or a forced BPM,
+    // prebuild the mix into the player for interactive use.
+    if (!g_mix_tracks.empty()) {
+      try {
+        rebuild_mix_into_player(opt_bpm);
+      } catch (const std::exception& e) {
+        std::println(std::cerr, "Failed to build initial mix: {}", e.what());
+        return EXIT_FAILURE;
+      }
+    } else if (opt_bpm) {
+      std::println(std::cerr, "Warning: --bpm specified but no tracks in mix.");
+    }
 
-  // If we have any mix tracks (from --random or previous DB state) and/or a forced BPM,
-  // prebuild the mix into the player for interactive use.
-  if (!g_mix_tracks.empty()) {
-    try {
-      rebuild_mix_into_player(opt_bpm);
-    } catch (const std::exception& e) {
-      std::println(std::cerr, "Failed to build initial mix: {}", e.what());
-      ma_device_uninit(&device);
-      return EXIT_FAILURE;
-    }
-  } else if (opt_bpm) {
-    std::println(std::cerr, "Warning: --bpm specified but no tracks in mix.");
-  }
+    // Set up readline completion for track-info filenames (with quoting)
+    rl_attempted_completion_function = clmix_completion;
+    // Reasonable shell-like word breaks; Readline will respect quotes when completing.
+    rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
 
-  // Set up readline completion for track-info filenames (with quoting)
-  rl_attempted_completion_function = clmix_completion;
-  // Reasonable shell-like word breaks; Readline will respect quotes when completing.
-  rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
+    REPL repl;
 
-  REPL repl;
-
-  repl.register_command("help", "List commands", [&](std::span<const std::string>){
-    repl.print_help();
-  });
-  repl.register_command("exit", "Exit program", [&](std::span<const std::string>){
-    repl.stop();
-  });
-  repl.register_command("quit", "Alias for exit", [&](std::span<const std::string>){
-    repl.stop();
-  });
-  repl.register_command("echo", "Echo arguments; supports quoted args", [](std::span<const std::string> args){
-    for (size_t i = 0; i < args.size(); ++i) {
-      if (i) std::cout << ' ';
-      std::cout << args[i];
-    }
-    std::cout << "\n";
-  });
-  repl.register_command("track-info", "track-info <file> - open per-track shell", [&](std::span<const std::string> args){
-    if (args.size() != 1) {
-      std::println(std::cerr, "Usage: track-info <file>");
-      return;
-    }
-    run_track_info_shell(args[0], trackdb_path);
-  });
-  
-  register_volume_command(repl, "Mix");
-  
-  // Mix commands
-  repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](std::span<const std::string> a){
-    if (a.size() != 1) {
-      std::println(std::cerr, "Usage: add <file>");
-      return;
-    }
-    std::filesystem::path f = a[0];
-    if (!g_db.find(f)) {
-      run_track_info_shell(f, trackdb_path);
-    }
-    if (!g_db.find(f)) {
-      std::println(std::cerr, "Track still not in DB. Aborting.");
-      return;
-    }
-    g_mix_tracks.push_back(f);
-    try {
-      rebuild_mix_into_player(std::nullopt);
-      std::cout << "Added. Mix size: " << g_mix_tracks.size()
-                << ", BPM: " << g_mix_bpm
-                << ", BPB: " << g_mix_bpb << "\n";
-    } catch (const std::exception& e) {
-      std::println(std::cerr, "Failed to build mix: {}", e.what());
-    }
-  });
-
-  repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](std::span<const std::string> a){
-    if (g_mix_tracks.empty()) {
-      std::println(std::cerr, "No tracks in mix.");
-      return;
-    }
-    if (a.empty()) {
-      std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
-      return;
-    }
-    if (auto v = parse_number<double>(a[0]); v) {
-      if (*v <= 0.0) {
-        std::println(std::cerr, "Invalid BPM: must be > 0");
+    repl.register_command("help", "List commands", [&](std::span<const std::string>){
+      repl.print_help();
+    });
+    repl.register_command("exit", "Exit program", [&](std::span<const std::string>){
+      repl.stop();
+    });
+    repl.register_command("quit", "Alias for exit", [&](std::span<const std::string>){
+      repl.stop();
+    });
+    repl.register_command("echo", "Echo arguments; supports quoted args", [](std::span<const std::string> args){
+      for (size_t i = 0; i < args.size(); ++i) {
+        if (i) std::cout << ' ';
+        std::cout << args[i];
+      }
+      std::cout << "\n";
+    });
+    repl.register_command("track-info", "track-info <file> - open per-track shell", [&](std::span<const std::string> args){
+      if (args.size() != 1) {
+        std::println(std::cerr, "Usage: track-info <file>");
         return;
       }
-      try {
-        rebuild_mix_into_player(*v);
-        std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
-      } catch (const std::exception& e) {
-        std::println(std::cerr, "Failed to rebuild mix: {}", e.what());
+      run_track_info_shell(args[0], trackdb_path);
+    });
+    
+    register_volume_command(repl, "Mix");
+    
+    // Mix commands
+    repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](std::span<const std::string> a){
+      if (a.size() != 1) {
+        std::println(std::cerr, "Usage: add <file>");
+        return;
       }
-    } else {
-      std::println(std::cerr, "Invalid BPM: {}", v.error());
-    }
-  });
+      std::filesystem::path f = a[0];
+      if (!g_db.find(f)) {
+        run_track_info_shell(f, trackdb_path);
+      }
+      if (!g_db.find(f)) {
+        std::println(std::cerr, "Track still not in DB. Aborting.");
+        return;
+      }
+      g_mix_tracks.push_back(f);
+      try {
+        rebuild_mix_into_player(std::nullopt);
+        std::cout << "Added. Mix size: " << g_mix_tracks.size()
+                  << ", BPM: " << g_mix_bpm
+                  << ", BPB: " << g_mix_bpb << "\n";
+      } catch (const std::exception& e) {
+        std::println(std::cerr, "Failed to build mix: {}", e.what());
+      }
+    });
 
-  repl.register_command("play", "Start playback (mix)", [&](std::span<const std::string>){
-    if (!g_player.track) {
+    repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](std::span<const std::string> a){
       if (g_mix_tracks.empty()) {
         std::println(std::cerr, "No tracks in mix.");
         return;
       }
-      try {
-        rebuild_mix_into_player(std::nullopt);
-      } catch (const std::exception& e) {
-        std::println(std::cerr, "Build mix failed: {}", e.what());
+      if (a.empty()) {
+        std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
         return;
       }
-    }
-    g_player.seekPending.store(false);
-    g_player.playing.store(true);
-  });
-
-  repl.register_command("stop", "Stop playback", [&](std::span<const std::string>){
-    g_player.playing.store(false);
-  });
-
-  repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](std::span<const std::string> a){
-    if (a.size() != 1 || !g_player.track) {
-      std::println(std::cerr, "Usage: seek <bar>");
-      return;
-    }
-    if (auto bar1 = parse_number<int>(a[0]); bar1) {
-      int bar0 = std::max(0, *bar1 - 1);
-      double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
-      double shift = g_player.upbeatBeats.load() * framesPerBeat
-                     + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
-      double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
-      size_t total_frames = g_player.track->frames();
-      if (target >= (double)total_frames) target = (double)total_frames - 1.0;
-      if (target < 0.0) target = 0.0;
-      if (!g_player.playing.load()) {
-        g_player.srcPos = target;
-        g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(false, std::memory_order_relaxed);
+      if (auto v = parse_number<double>(a[0]); v) {
+        if (*v <= 0.0) {
+          std::println(std::cerr, "Invalid BPM: must be > 0");
+          return;
+        }
+        try {
+          rebuild_mix_into_player(*v);
+          std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
+        } catch (const std::exception& e) {
+          std::println(std::cerr, "Failed to rebuild mix: {}", e.what());
+        }
       } else {
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(true, std::memory_order_release);
+        std::println(std::cerr, "Invalid BPM: {}", v.error());
       }
-    } else {
-      std::println(std::cerr, "Invalid bar number: {}", bar1.error());
-    }
-  });
-
-  repl.register_command("cues", "List all cue points in current mix", [&](std::span<const std::string>){
-    if (g_mix_cues.empty()) {
-      std::println(std::cout, "(no cues)");
-      return;
-    }
-    for (const auto& c : g_mix_cues) {
-      auto name = c.track.filename().generic_string();
-      std::println(std::cout,
-                   "mix bar {}  |  track: {}  |  track bar {}",
-                   c.bar, name, c.local_bar);
-    }
-  });
-
-  repl.register_command("tags", "List all tags present in track DB", [&](std::span<const std::string>){
-    // Count how many tracks have each tag
-    std::map<std::string, std::size_t> counts;
-    for (const auto& [path, ti] : g_db.items) {
-      (void)path;
-      for (const auto& tag : ti.tags) {
-        ++counts[tag];
-      }
-    }
-
-    if (counts.empty()) {
-      std::println(std::cout, "(no tags)");
-      return;
-    }
-
-    // Move to vector and sort by count (descending), then by tag name
-    std::vector<std::pair<std::string, std::size_t>> v;
-    v.reserve(counts.size());
-    for (auto& [tag, cnt] : counts) {
-      v.emplace_back(tag, cnt);
-    }
-
-    std::ranges::sort(v, [](auto const& a, auto const& b) {
-      if (a.second != b.second) return a.second > b.second; // more tracks first
-      return a.first < b.first;                             // tie-break by name
     });
 
-    bool first = true;
-    for (auto const& [tag, cnt] : v) {
-      if (!first) std::cout << ", ";
-      std::cout << tag << " (" << cnt << ")";
-      first = false;
-    }
-    std::cout << "\n";
-  });
+    repl.register_command("play", "Start playback (mix)", [&](std::span<const std::string>){
+      if (!g_player.track) {
+        if (g_mix_tracks.empty()) {
+          std::println(std::cerr, "No tracks in mix.");
+          return;
+        }
+        try {
+          rebuild_mix_into_player(std::nullopt);
+        } catch (const std::exception& e) {
+          std::println(std::cerr, "Build mix failed: {}", e.what());
+          return;
+        }
+      }
+      g_player.seekPending.store(false);
+      g_player.playing.store(true);
+    });
 
-  repl.register_command("list",
-    "list [tag_expr] - list tracks in DB matching tag/bpm expression "
-    "(e.g. \">=140bpm & <150bpm | techno\")",
-    [&](std::span<const std::string> args){
+    repl.register_command("stop", "Stop playback", [&](std::span<const std::string>){
+      g_player.playing.store(false);
+    });
+
+    repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](std::span<const std::string> a){
+      if (a.size() != 1 || !g_player.track) {
+        std::println(std::cerr, "Usage: seek <bar>");
+        return;
+      }
+      if (auto bar1 = parse_number<int>(a[0]); bar1) {
+        int bar0 = std::max(0, *bar1 - 1);
+        double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
+        double shift = g_player.upbeatBeats.load() * framesPerBeat
+                       + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
+        double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
+        size_t total_frames = g_player.track->frames();
+        if (target >= (double)total_frames) target = (double)total_frames - 1.0;
+        if (target < 0.0) target = 0.0;
+        if (!g_player.playing.load()) {
+          g_player.srcPos = target;
+          g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
+          g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+          g_player.seekPending.store(false, std::memory_order_relaxed);
+        } else {
+          g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+          g_player.seekPending.store(true, std::memory_order_release);
+        }
+      } else {
+        std::println(std::cerr, "Invalid bar number: {}", bar1.error());
+      }
+    });
+
+    repl.register_command("cues", "List all cue points in current mix", [&](std::span<const std::string>){
+      if (g_mix_cues.empty()) {
+        std::println(std::cout, "(no cues)");
+        return;
+      }
+      for (const auto& c : g_mix_cues) {
+        auto name = c.track.filename().generic_string();
+        std::println(std::cout,
+                     "mix bar {}  |  track: {}  |  track bar {}",
+                     c.bar, name, c.local_bar);
+      }
+    });
+
+    repl.register_command("tags", "List all tags present in track DB", [&](std::span<const std::string>){
+      // Count how many tracks have each tag
+      std::map<std::string, std::size_t> counts;
+      for (const auto& [path, ti] : g_db.items) {
+        (void)path;
+        for (const auto& tag : ti.tags) {
+          ++counts[tag];
+        }
+      }
+
+      if (counts.empty()) {
+        std::println(std::cout, "(no tags)");
+        return;
+      }
+
+      // Move to vector and sort by count (descending), then by tag name
+      std::vector<std::pair<std::string, std::size_t>> v;
+      v.reserve(counts.size());
+      for (auto& [tag, cnt] : counts) {
+        v.emplace_back(tag, cnt);
+      }
+
+      std::ranges::sort(v, [](auto const& a, auto const& b) {
+        if (a.second != b.second) return a.second > b.second; // more tracks first
+        return a.first < b.first;                             // tie-break by name
+      });
+
+      bool first = true;
+      for (auto const& [tag, cnt] : v) {
+        if (!first) std::cout << ", ";
+        std::cout << tag << " (" << cnt << ")";
+        first = false;
+      }
+      std::cout << "\n";
+    });
+
+    repl.register_command("list",
+      "list [tag_expr] - list tracks in DB matching tag/bpm expression "
+      "(e.g. \">=140bpm & <150bpm | techno\")",
+      [&](std::span<const std::string> args){
+        if (g_db.items.empty()) {
+          std::println(std::cerr, "Track DB is empty.");
+          return;
+        }
+
+        // Build matcher: empty args => match everything
+        Matcher matcher;
+        if (!args.empty()) {
+          std::string expr;
+          for (size_t i = 0; i < args.size(); ++i) {
+            if (i) expr.push_back(' ');
+            expr += args[i];
+          }
+          try {
+            matcher = Matcher::parse(expr);
+          } catch (const std::exception& e) {
+            std::println(std::cerr, "Invalid tag expression: {}", e.what());
+            return;
+          }
+        }
+
+        std::size_t count = 0;
+        for (const auto& [path, ti] : g_db.items) {
+          if (!ti.cue_bars.empty() && matcher(ti)) {
+            ++count;
+            std::cout << std::setw(3) << count << ". "
+                      << path.generic_string()
+                      << "  |  BPM: " << std::fixed << std::setprecision(2) << ti.bpm
+                      << "  |  Tags: ";
+            if (ti.tags.empty()) {
+              std::cout << "(none)";
+            } else {
+              bool first = true;
+              for (const auto& tag : ti.tags) {
+                if (!first) std::cout << ", ";
+                std::cout << tag;
+                first = false;
+              }
+            }
+            std::cout << "\n";
+          }
+        }
+
+        if (count == 0) {
+          if (args.empty()) {
+            std::println(std::cout, "(no tracks with cues in DB)");
+          } else {
+            std::println(std::cout, "(no tracks matching expression)");
+          }
+        }
+      });
+
+    repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags or bpm (e.g. \">=140bpm & <150bpm\")", [&](std::span<const std::string> args){
       if (g_db.items.empty()) {
         std::println(std::cerr, "Track DB is empty.");
         return;
@@ -2282,110 +2388,61 @@ int main(int argc, char** argv)
         }
       }
 
-      std::size_t count = 0;
-      for (const auto& [path, ti] : g_db.items) {
+      std::vector<std::filesystem::path> all;
+      all.reserve(g_db.items.size());
+      for (const auto& kv : g_db.items) {
+        const TrackInfo& ti = kv.second;
         if (!ti.cue_bars.empty() && matcher(ti)) {
-          ++count;
-          std::cout << std::setw(3) << count << ". "
-                    << path.generic_string()
-                    << "  |  BPM: " << std::fixed << std::setprecision(2) << ti.bpm
-                    << "  |  Tags: ";
-          if (ti.tags.empty()) {
-            std::cout << "(none)";
-          } else {
-            bool first = true;
-            for (const auto& tag : ti.tags) {
-              if (!first) std::cout << ", ";
-              std::cout << tag;
-              first = false;
-            }
-          }
-          std::cout << "\n";
+          all.push_back(ti.filename);
         }
       }
-
-      if (count == 0) {
+      if (all.empty()) {
         if (args.empty()) {
-          std::println(std::cout, "(no tracks with cues in DB)");
+          std::println(std::cerr, "No tracks with cues in DB.");
         } else {
-          std::println(std::cout, "(no tracks matching expression)");
+          std::println(std::cerr, "No tracks with cues matching tag expression.");
         }
+        return;
+      }
+      std::mt19937 rng(std::random_device{}());
+      std::shuffle(all.begin(), all.end(), rng);
+
+      g_mix_tracks = std::move(all);
+      std::println(std::cout, "Track order:");
+      for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
+        std::println(std::cout, "  {}. {}",
+                     i + 1, g_mix_tracks[i].generic_string());
+      }
+      try {
+        rebuild_mix_into_player(std::nullopt);
+        std::cout << "Random mix created with " << g_mix_tracks.size()
+                  << " tracks. BPM: " << g_mix_bpm
+                  << ", BPB: " << g_mix_bpb << "\n";
+      } catch (const std::exception& e) {
+        std::println(std::cerr, "Failed to build random mix: {}", e.what());
       }
     });
 
-  repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags or bpm (e.g. \">=140bpm & <150bpm\")", [&](std::span<const std::string> args){
-    if (g_db.items.empty()) {
-      std::println(std::cerr, "Track DB is empty.");
-      return;
-    }
-
-    // Build matcher: empty args => match everything
-    Matcher matcher;
-    if (!args.empty()) {
-      std::string expr;
-      for (size_t i = 0; i < args.size(); ++i) {
-        if (i) expr.push_back(' ');
-        expr += args[i];
-      }
-      try {
-        matcher = Matcher::parse(expr);
-      } catch (const std::exception& e) {
-        std::println(std::cerr, "Invalid tag expression: {}", e.what());
+    repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](std::span<const std::string> a){
+      if (a.size() != 1) {
+        std::println(std::cerr, "Usage: export <file.wav>");
         return;
       }
-    }
-
-    std::vector<std::filesystem::path> all;
-    all.reserve(g_db.items.size());
-    for (const auto& kv : g_db.items) {
-      const TrackInfo& ti = kv.second;
-      if (!ti.cue_bars.empty() && matcher(ti)) {
-        all.push_back(ti.filename);
+      if (g_mix_tracks.empty()) {
+        std::println(std::cerr, "No tracks in mix.");
+        return;
       }
-    }
-    if (all.empty()) {
-      if (args.empty()) {
-        std::println(std::cerr, "No tracks with cues in DB.");
-      } else {
-        std::println(std::cerr, "No tracks with cues matching tag expression.");
-      }
-      return;
-    }
-    std::mt19937 rng(std::random_device{}());
-    std::shuffle(all.begin(), all.end(), rng);
 
-    g_mix_tracks = std::move(all);
-    std::println(std::cout, "Track order:");
-    for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-      std::println(std::cout, "  {}. {}",
-                   i + 1, g_mix_tracks[i].generic_string());
-    }
-    try {
-      rebuild_mix_into_player(std::nullopt);
-      std::cout << "Random mix created with " << g_mix_tracks.size()
-                << " tracks. BPM: " << g_mix_bpm
-                << ", BPB: " << g_mix_bpb << "\n";
-    } catch (const std::exception& e) {
-      std::println(std::cerr, "Failed to build random mix: {}", e.what());
-    }
-  });
+      (void)export_current_mix(a[0]);
+    });
 
-  repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](std::span<const std::string> a){
-    if (a.size() != 1) {
-      std::println(std::cerr, "Usage: export <file.wav>");
-      return;
-    }
-    if (g_mix_tracks.empty()) {
-      std::println(std::cerr, "No tracks in mix.");
-      return;
-    }
+    repl.run("clmix> ");
 
-    (void)export_current_mix(a[0]);
-  });
-
-  repl.run("clmix> ");
-
-  ma_device_uninit(&device);
+    // miniplayer destructor will stop/uninit automatically
+  } catch (const std::exception& e) {
+    std::println(std::cerr, "Audio init failed: {}", e.what());
+    return EXIT_FAILURE;
+  }
 
   return 0;
 }
