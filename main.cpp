@@ -1039,12 +1039,37 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 }
 
+// Compute default mix BPM as mean of track BPMs for the given files.
+[[nodiscard]] double compute_default_mix_bpm(
+  const std::vector<std::filesystem::path>& files
+) {
+  if (files.empty()) {
+    throw std::runtime_error("No tracks to compute default BPM.");
+  }
+
+  std::vector<TrackInfo> tracks;
+  tracks.reserve(files.size());
+  for (auto const& file : files) {
+    auto* info = g_db.find(file);
+    if (!info || info->cue_bars.empty()) {
+      throw std::runtime_error(
+        "Track missing in DB or has no cues: " + file.generic_string()
+      );
+    }
+    tracks.push_back(*info);
+  }
+
+  const auto bpms = tracks | std::views::transform(&TrackInfo::bpm);
+  return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
+}
+
 // Build a rendered mix as a single Track at device rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
+// 'bpm' is the mix BPM to use (no defaulting inside).
 [[nodiscard]] shared_ptr<interleaved<float>> build_mix_track(
   const std::vector<std::filesystem::path>& files,
-  std::optional<double> force_bpm = std::nullopt,
+  double bpm,
   int src_type = SRC_LINEAR
 ) {
   if (files.empty()) return {};
@@ -1060,11 +1085,6 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
     tracks.push_back(*info);
   }
 
-  // Mix BPM default: mean of track bpms (unless forced)
-  auto bpm = force_bpm.value_or([&]{
-    const auto bpms = tracks | std::views::transform(&TrackInfo::bpm);
-    return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
-  }());
   g_mix_bpm = bpm;
   g_mix_bpb = tracks.front().beats_per_bar;
 
@@ -1238,7 +1258,12 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
         ++j;
       }
       // [i, j) is a run of same bar; keep the last one (j-1)
-      deduped.push_back(g_mix_cues[j - 1]);
+      deduped.push_back(MixCue{
+        g_mix_cues[j - 1].frame,
+        g_mix_cues[j - 1].bar,
+        g_mix_cues[j - 1].track,
+        g_mix_cues[j - 1].local_bar
+      });
       i = j;
     }
 
@@ -1835,8 +1860,10 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
     throw std::runtime_error("No tracks in mix.");
   }
 
+  double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
+
   g_player.playing.store(false);
-  auto audio = build_mix_track(g_mix_tracks, force_bpm);
+  auto audio = build_mix_track(g_mix_tracks, bpm);
   g_player.track = audio;
   g_player.srcPos = 0.0;
   g_player.seekPending.store(false);
@@ -1856,8 +1883,9 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   }
 }
 
-// Helper: export current mix (based on g_mix_tracks/g_mix_bpm) to a file.
-bool export_current_mix(const std::filesystem::path& out_path)
+// Helper: export current mix (based on g_mix_tracks) to a file.
+bool export_current_mix(const std::filesystem::path& out_path,
+                        std::optional<double> force_bpm = std::nullopt)
 {
   if (g_mix_tracks.empty()) {
     std::println(std::cerr, "No tracks in mix.");
@@ -1870,9 +1898,11 @@ bool export_current_mix(const std::filesystem::path& out_path)
     // Release any existing mix from the player to avoid holding two copies in RAM
     g_player.track.reset();
 
+    double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
+
     // Rebuild a fresh mix with current BPM and tracks, best quality SRC
     auto audio = build_mix_track(
-      g_mix_tracks, g_mix_bpm, SRC_SINC_BEST_QUALITY
+      g_mix_tracks, bpm, SRC_SINC_BEST_QUALITY
     );
 
     if (!std::in_range<sf_count_t>(audio->frames())) {
@@ -2006,7 +2036,7 @@ int main(int argc, char** argv)
       std::println(std::cerr, "No tracks in mix.");
       return 1;
     }
-    bool ok = export_current_mix(*opt_export_path);
+    bool ok = export_current_mix(*opt_export_path, opt_bpm);
     return ok ? 0 : 1;
   }
 
