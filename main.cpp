@@ -1258,12 +1258,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
         ++j;
       }
       // [i, j) is a run of same bar; keep the last one (j-1)
-      deduped.push_back(MixCue{
-        g_mix_cues[j - 1].frame,
-        g_mix_cues[j - 1].bar,
-        g_mix_cues[j - 1].track,
-        g_mix_cues[j - 1].local_bar
-      });
+      deduped.push_back(g_mix_cues[j - 1]);
       i = j;
     }
 
