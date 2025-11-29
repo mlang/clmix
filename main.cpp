@@ -939,8 +939,7 @@ public:
     if (ma_result res = ma_device_init(nullptr, &config, &device_);
         res != MA_SUCCESS) {
       throw std::runtime_error(
-        std::string("Audio device init failed: ") +
-        ma_result_description(res)
+        std::string("Audio device init failed: ") + ma_result_description(res)
       );
     }
   }
@@ -955,8 +954,7 @@ public:
   void start() {
     if (ma_result res = ma_device_start(&device_); res != MA_SUCCESS) {
       throw std::runtime_error(
-        std::string("Audio device start failed: ") +
-        ma_result_description(res)
+        std::string("Audio device start failed: ") + ma_result_description(res)
       );
     }
   }
@@ -2102,13 +2100,9 @@ int main(int argc, char** argv)
   // Interactive mode from here on: needs audio device and REPL.
 
   try {
-    auto device = miniplayer(
-      /*sample_rate*/ 44100,
-      /*channels*/    2,
-      /*callback*/ [](multichannel<float> output, uint32_t devRate) {
-        if (g_player.playing.load()) {
-          play(g_player, output, devRate);
-        }
+    auto device = miniplayer(44100, 2,
+      [](multichannel<float> output, uint32_t devRate) {
+        if (g_player.playing.load()) play(g_player, output, devRate);
       }
     );
 
