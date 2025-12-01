@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 project(CLMIX VERSION 1 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
@@ -18,8 +15,10 @@ if (NOT HAVE_MINIAUDIO_H)
   message(FATAL_ERROR "miniaudio.h not found. Install miniaudio or add its include directory to the build (e.g. set CMAKE_INCLUDE_PATH or use target_include_directories).")
 endif()
 
-find_package(TBB REQUIRED QUIET CONFIG)
+find_package(TBB REQUIRED CONFIG)
 add_executable(clmix main.cpp)
+target_compile_features(clmix PRIVATE cxx_std_23)
+set_property(TARGET clmix PROPERTY CXX_STANDARD_REQUIRED ON)
 target_compile_definitions(clmix
   PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1
           _GLIBCXX_USE_TBB_PAR_BACKEND
@@ -33,3 +32,4 @@ target_link_libraries(clmix
           PkgConfig::SndFile
           TBB::tbb
 )
+install(TARGETS clmix RUNTIME DESTINATION bin)
