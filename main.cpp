@@ -923,12 +923,10 @@ double g_mix_bpm = 120.0;
 template<class Callback>
 class miniplayer {
 public:
-  miniplayer(uint32_t sample_rate,
-             uint32_t channels,
-             Callback cb)
+  miniplayer(uint32_t sample_rate, uint32_t channels, Callback cb)
   : callback_(std::move(cb))
   {
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    auto config = ma_device_config_init(ma_device_type_playback);
     config.playback.format   = ma_format_f32;
     config.playback.channels = channels;
     config.sampleRate        = sample_rate;
@@ -1261,7 +1259,6 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   for (auto& it : items) {
     const size_t inChS = it.audio.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
-    std::println("gain_db: {}", ampdb(gain_lin));
     for (size_t f = 0; f < it.audio.frames(); ++f) {
       double absF = it.offset + (double)f;
       if (absF < 0.0) continue;
