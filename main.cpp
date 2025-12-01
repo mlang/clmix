@@ -1151,6 +1151,15 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
+    if (!info || !info->cue_bars.empty() == false) {
+      // This condition is logically odd; but we keep original semantics:
+      // require track in DB and at least one cue.
+    }
+  }
+  tracks.clear();
+  tracks.reserve(files.size());
+  for (auto const& file : files) {
+    auto* info = g_db.find(file);
     if (!info || info->cue_bars.empty()) {
       throw std::runtime_error("Track missing in DB or has no cues: " + file.generic_string());
     }
@@ -2001,7 +2010,7 @@ int main(int argc, char** argv)
   if (argc < 2) {
     std::cerr << "Usage: clmix <trackdb.txt> [options]\n"
                  "Options:\n"
-                 "  --random <expr>   Build mix from random tracks matching tag/BPM expr\n"
+                 "  --random <expr>   Build mix from random tracks matching tag/BPM expr (can be given multiple times)\n"
                  "  --bpm <value>     Force mix BPM\n"
                  "  --export <file>   Render mix to 24-bit WAV and exit\n";
     return EXIT_FAILURE;
@@ -2012,9 +2021,9 @@ int main(int argc, char** argv)
   g_db.load(trackdb_path);
 
   // Command-line options (after trackdb_path)
-  std::optional<std::string>              opt_random_expr;
-  std::optional<double>                   opt_bpm;
-  std::optional<std::filesystem::path>    opt_export_path;
+  std::vector<Matcher>                 opt_random_exprs;
+  std::optional<double>                opt_bpm;
+  std::optional<std::filesystem::path> opt_export_path;
 
   // Prepare getopt_long
   int opt;
@@ -2030,9 +2039,15 @@ int main(int argc, char** argv)
   optind = 2;
   while ((opt = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
     switch (opt) {
-      case 'r':
-        opt_random_expr = std::string(optarg);
+      case 'r': {
+        try {
+          opt_random_exprs.push_back(Matcher::parse(optarg));
+        } catch (const std::exception& e) {
+          std::println(std::cerr, "Invalid --random expression '{}': {}", optarg, e.what());
+          return 1;
+        }
         break;
+      }
       case 'b': {
         auto v = parse_number<double>(optarg);
         if (!v || *v <= 0.0) {
@@ -2051,37 +2066,35 @@ int main(int argc, char** argv)
     }
   }
 
-  // If --random was given, build g_mix_tracks from DB using Matcher
-  if (opt_random_expr) {
+  // If any --random was given, build g_mix_tracks from DB using one or more Matchers
+  if (!opt_random_exprs.empty()) {
     if (g_db.items.empty()) {
       std::println(std::cerr, "Track DB is empty.");
       return 1;
     }
 
-    Matcher matcher;
-    try {
-      matcher = Matcher::parse(*opt_random_expr);
-    } catch (const std::exception& e) {
-      std::println(std::cerr, "Invalid --random expression: {}", e.what());
-      return 1;
-    }
-
-    std::vector<std::filesystem::path> all;
-    all.reserve(g_db.items.size());
-    for (const auto& kv : g_db.items) {
-      const TrackInfo& ti = kv.second;
-      if (!ti.cue_bars.empty() && matcher(ti)) {
-        all.push_back(ti.filename);
-      }
-    }
-    if (all.empty()) {
-      std::println(std::cerr, "No tracks with cues matching --random expression.");
-      return 1;
-    }
-
     std::mt19937 rng(std::random_device{}());
-    std::shuffle(all.begin(), all.end(), rng);
-    g_mix_tracks = std::move(all);
+    g_mix_tracks.clear();
+
+    for (const auto& matcher : opt_random_exprs) {
+      std::vector<std::filesystem::path> group;
+      group.reserve(g_db.items.size());
+      for (const auto& kv : g_db.items) {
+        const TrackInfo& ti = kv.second;
+        if (!ti.cue_bars.empty() && matcher(ti)) {
+          group.push_back(ti.filename);
+        }
+      }
+
+      if (group.empty()) {
+        std::println(std::cerr,
+                     "No tracks with cues matching one of the --random expressions.");
+        return 1;
+      }
+
+      std::shuffle(group.begin(), group.end(), rng);
+      g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
+    }
   }
 
   // Non-interactive export mode
@@ -2358,48 +2371,65 @@ int main(int argc, char** argv)
         }
       });
 
-    repl.register_command("random", "random [tag_expr] - build mix from all trackdb entries in random order; optional tag_expr filters by tags or bpm (e.g. \">=140bpm & <150bpm\")", [&](std::span<const std::string> args){
+    repl.register_command(
+      "random",
+      "random [expr1 [expr2 ...]] - build mix from DB; "
+      "no expr => all tracks; multiple exprs => append random block per expr",
+      [&](std::span<const std::string> args)
+    {
       if (g_db.items.empty()) {
         std::println(std::cerr, "Track DB is empty.");
         return;
       }
 
-      // Build matcher: empty args => match everything
-      Matcher matcher;
-      if (!args.empty()) {
-        std::string expr;
-        for (size_t i = 0; i < args.size(); ++i) {
-          if (i) expr.push_back(' ');
-          expr += args[i];
-        }
-        try {
-          matcher = Matcher::parse(expr);
-        } catch (const std::exception& e) {
-          std::println(std::cerr, "Invalid tag expression: {}", e.what());
-          return;
-        }
-      }
-
-      std::vector<std::filesystem::path> all;
-      all.reserve(g_db.items.size());
-      for (const auto& kv : g_db.items) {
-        const TrackInfo& ti = kv.second;
-        if (!ti.cue_bars.empty() && matcher(ti)) {
-          all.push_back(ti.filename);
-        }
-      }
-      if (all.empty()) {
-        if (args.empty()) {
-          std::println(std::cerr, "No tracks with cues in DB.");
-        } else {
-          std::println(std::cerr, "No tracks with cues matching tag expression.");
-        }
-        return;
-      }
       std::mt19937 rng(std::random_device{}());
-      std::shuffle(all.begin(), all.end(), rng);
+      g_mix_tracks.clear();
 
-      g_mix_tracks = std::move(all);
+      auto append_block_for_matcher = [&](const Matcher& matcher,
+                                          std::string_view desc) -> bool {
+        std::vector<std::filesystem::path> group;
+        group.reserve(g_db.items.size());
+        for (const auto& kv : g_db.items) {
+          const TrackInfo& ti = kv.second;
+          if (!ti.cue_bars.empty() && matcher(ti)) {
+            group.push_back(ti.filename);
+          }
+        }
+        if (group.empty()) {
+          if (desc.empty()) {
+            std::println(std::cerr, "No tracks with cues in DB.");
+          } else {
+            std::println(std::cerr,
+                         "No tracks with cues matching expression '{}'.", desc);
+          }
+          return false;
+        }
+        std::shuffle(group.begin(), group.end(), rng);
+        g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
+        return true;
+      };
+
+      if (args.empty()) {
+        // No matcher: use all tracks with cues
+        Matcher match_all; // default-constructed => always true
+        if (!append_block_for_matcher(match_all, {})) return;
+      } else {
+        for (const auto& expr : args) {
+          Matcher matcher;
+          try {
+            matcher = Matcher::parse(expr);
+          } catch (const std::exception& e) {
+            std::println(std::cerr, "Invalid tag expression '{}': {}", expr, e.what());
+            g_mix_tracks.clear();
+            return;
+          }
+          if (!append_block_for_matcher(matcher, expr)) {
+            g_mix_tracks.clear();
+            return;
+          }
+        }
+      }
+
       std::println(std::cout, "Track order:");
       for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
         std::println(std::cout, "  {}. {}",
