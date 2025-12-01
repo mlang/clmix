@@ -667,6 +667,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        17,
+        193
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Askel - Askel - Through-1286524231.mp3",
+      "tags": [
+        "dnb",
+        "vocal"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 1.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         49,
