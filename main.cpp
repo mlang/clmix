@@ -2044,16 +2044,16 @@ int main(int argc, char** argv)
           opt_random_exprs.push_back(Matcher::parse(optarg));
         } catch (const std::exception& e) {
           std::println(std::cerr, "Invalid --random expression '{}': {}", optarg, e.what());
-          return 1;
+          return EXIT_FAILURE;
         }
         break;
       }
       case 'b': {
         auto v = parse_number<double>(optarg);
         if (!v || *v <= 0.0) {
-          std::cerr << "Invalid --bpm value: "
-                    << (v ? "must be > 0" : v.error()) << "\n";
-          return 2;
+          std::println(std::cerr, "Invalid --bpm value: {}",
+                       v ? "must be > 0" : v.error());
+          return EXIT_FAILURE;
         }
         opt_bpm = *v;
         break;
@@ -2062,7 +2062,7 @@ int main(int argc, char** argv)
         opt_export_path = std::filesystem::path(optarg);
         break;
       default:
-        return 2;
+        return EXIT_FAILURE;
     }
   }
 
