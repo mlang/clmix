@@ -739,6 +739,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        49,
+        193
+      ],
+      "filename": "DnB/ThirtyOne Recordings/Deadcode - Ratatata ⧸ Chasm/Deadcode - Ratatata [2747154694].mp3",
+      "tags": [
+        "hard",
+        "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 172.0,
       "cue_bars": [
         81,
