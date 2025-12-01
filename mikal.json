@@ -861,6 +861,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 120.0,
+      "cue_bars": [
+        33,
+        225
+      ],
+      "filename": "Melodic Techno/Keinemusik/&ME, Black Coffee, Keinemusik - &ME, Black Coffee, Keinemusik - The Rapture Pt.III [4253651401].mp3",
+      "tags": [
+        "melodic",
+        "piano",
+        "techno"
+      ],
+      "time_offset_sec": 0.2,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 148.0,
       "cue_bars": [
         17,
