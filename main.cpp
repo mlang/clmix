@@ -171,11 +171,11 @@ public:
 
   class frame_view : public frame_view_base<T> {
   public:
-    frame_view(T* row, std::size_t ch)
-      : frame_view_base<T>(row, ch) {}
+    frame_view(T* row, std::size_t ch) : frame_view_base<T>(row, ch) {}
 
     template<typename U> requires is_arithmetic_v<U>
-    frame_view& operator*=(U gain) noexcept {
+    frame_view& operator*=(U gain) noexcept
+    {
       const T g = static_cast<T>(gain);
       for (std::size_t c = 0; c < this->ch_; ++c)
         this->row_[c] *= g;
@@ -183,7 +183,8 @@ public:
     }
   };
 
-  class const_frame_view : public frame_view_base<const T> {
+  class const_frame_view : public frame_view_base<const T>
+  {
   public:
     const_frame_view(const T* row, std::size_t ch)
     : frame_view_base<const T>(row, ch) {}
@@ -194,22 +195,26 @@ public:
     assert(frame < frames_ && ch < channels_);
     return storage[frame * channels_ + ch];
   }
-  const T& operator[](std::size_t frame, std::size_t ch) const noexcept {
+  const T& operator[](std::size_t frame, std::size_t ch) const noexcept
+  {
     assert(frame < frames_ && ch < channels_);
     return storage[frame * channels_ + ch];
   }
 
   // 1D frame view
-  frame_view operator[](std::size_t frame) noexcept {
+  frame_view operator[](std::size_t frame) noexcept
+  {
     assert(frame < frames_);
     return frame_view(storage.data() + frame * channels_, channels_);
   }
-  const_frame_view operator[](std::size_t frame) const noexcept {
+  const_frame_view operator[](std::size_t frame) const noexcept
+  {
     assert(frame < frames_);
     return const_frame_view(storage.data() + frame * channels_, channels_);
   }
 
-  [[nodiscard]] T peak() const noexcept {
+  [[nodiscard]] T peak() const noexcept
+  {
     T p = T(0.0);
     for (const T& s: storage) {
       T a = std::abs(s);
@@ -221,16 +226,20 @@ public:
     return p;
   }
 
-  void resize(std::size_t new_frames) {
+  void resize(std::size_t new_frames)
+  {
     storage.resize(new_frames * channels_);
     frames_ = new_frames;
   }
 
-  void clear() { resize(0); }
-  void shrink_to_fit() { storage.shrink_to_fit(); }
+  void clear()
+  { resize(0); }
+  void shrink_to_fit()
+  { storage.shrink_to_fit(); }
 
   // Scale all samples in-place by gain.
-  template<typename U> requires is_arithmetic_v<U>
+  template<typename U>
+  requires is_arithmetic_v<U>
   interleaved &operator*=(U gain) noexcept
   {
     const T g = static_cast<T>(gain);
@@ -460,8 +469,8 @@ struct Metronome {
     }
   }
 
-  [[nodiscard]] float process(double posSrcFrames, double framesPerBeatSrc, uint32_t devRate) {
-    if (clickLen == 0) clickLen = std::max(1, (int)(devRate / 100)); // ~10ms
+  [[nodiscard]] float process(double posSrcFrames, double framesPerBeatSrc, uint32_t device_rate) {
+    if (clickLen == 0) clickLen = std::max(1, (int)(device_rate / 100)); // ~10ms
     uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
     if (beatIndex != lastBeatIndex) {
       lastBeatIndex = beatIndex;
@@ -475,7 +484,7 @@ struct Metronome {
     float click = 0.f;
     if (clickSamplesLeft > 0) {
       float env = (float)clickSamplesLeft / (float)clickLen; // linear decay
-      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqCurHz / (float)devRate;
+      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqCurHz / (float)device_rate;
       click = clickAmp * std::sinf(clickPhase) * env;
       --clickSamplesLeft;
     }
@@ -1349,7 +1358,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   return out;
 }
 
-void play(player_state &player, multichannel<float> output, uint32_t devRate)
+void play(player_state &player, multichannel<float> output, uint32_t device_rate)
 {
   if (player.track) {
     auto &track = *player.track;
@@ -1361,7 +1370,7 @@ void play(player_state &player, multichannel<float> output, uint32_t devRate)
 
 
     const double framesPerBeatSrc = (double)track.sample_rate * 60.0 / (double)bpm;
-    const double incrSrcPerOut = (double)track.sample_rate / (double)devRate;
+    const double incrSrcPerOut = (double)track.sample_rate / (double)device_rate;
     const double shiftSrc = player.upbeatBeats.load() * framesPerBeatSrc
                             + player.timeOffsetSec.load() * (double)track.sample_rate;
 
@@ -1394,7 +1403,7 @@ void play(player_state &player, multichannel<float> output, uint32_t devRate)
       double frac = pos - (double)i0;
       size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
 
-      float click = player.metro.process(pos - shiftSrc, framesPerBeatSrc, devRate);
+      float click = player.metro.process(pos - shiftSrc, framesPerBeatSrc, device_rate);
 
       // Write each output channel from the corresponding source channel (wrap if more outs)
       for (size_t ch = 0; ch < output.extent(1); ++ch) {
@@ -2158,8 +2167,8 @@ int main(int argc, char** argv)
 
   try {
     auto device = miniplayer(44100, 2,
-      [](multichannel<float> output, uint32_t devRate) {
-        if (g_player.playing.load()) play(g_player, output, devRate);
+      [](multichannel<float> output, uint32_t device_rate) {
+        if (g_player.playing.load()) play(g_player, output, device_rate);
       }
     );
 
