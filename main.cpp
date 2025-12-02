@@ -46,6 +46,7 @@
 #include <nlohmann/json.hpp>
 #include <sndfile.hh>
 
+#include <ebur128.h>
 #include <getopt.h>
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -58,9 +59,6 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-
-#include <ebur128.h>
-
 namespace {
 
 // We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
@@ -70,6 +68,7 @@ using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
 using nlohmann::json;
 using std::cerr, std::cout;
 using std::expected, std::unexpected;
+using std::filesystem::path;
 using std::floating_point;
 using std::in_range;
 using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
@@ -77,6 +76,7 @@ using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
 using std::println;
 using std::shared_ptr, std::unique_ptr;
 using std::string, std::string_view;
+using std::vector;
 
 constexpr float kHeadroomDB = -2.0f;
 
@@ -120,7 +120,7 @@ requires (is_integral_v<T> || is_floating_point_v<T>)
 
 template<typename T>
 class interleaved {
-  std::vector<T> storage;
+  vector<T> storage;
   std::size_t frames_   = 0;
   std::size_t channels_ = 0;
 
@@ -244,13 +244,13 @@ void ensure_headroom(interleaved<T> &audio, T headroom_dB)
 {
   const T headroom_linear = dbamp(headroom_dB);
   const T peak = audio.peak();
-  if (peak > 0.f && peak > headroom_linear) {
+  if (peak > T(0) && peak > headroom_linear) {
     audio *= headroom_linear / peak;
   }
 }
 
 struct ebur128_state_deleter {
-  void operator()(ebur128_state* p) const noexcept {
+  void operator()(ebur128_state *p) const noexcept {
     if (p) {
       ebur128_destroy(&p);
     }
@@ -485,12 +485,12 @@ struct Metronome {
 
 // Track metadata persisted in the DB
 struct TrackInfo {
-  std::filesystem::path filename;
+  path filename;
   unsigned beats_per_bar = 4;
   double bpm = 120.0; // required > 0
   double upbeat_beats = 0.0;
   double time_offset_sec = 0.0;
-  std::vector<int> cue_bars; // 1-based bar numbers
+  vector<int> cue_bars; // 1-based bar numbers
   std::set<string> tags; // unique tags
 };
 
@@ -786,13 +786,13 @@ public:
 };
 
 struct track_database {
-  std::map<std::filesystem::path, TrackInfo> items;
+  std::map<path, TrackInfo> items;
 
-  static std::filesystem::path norm(const std::filesystem::path& p) {
+  static path norm(const path& p) {
     return p.lexically_normal();
   }
 
-  [[nodiscard]] TrackInfo* find(const std::filesystem::path& file) {
+  [[nodiscard]] TrackInfo* find(const path& file) {
     auto it = items.find(norm(file));
     return (it == items.end()) ? nullptr : &it->second;
   }
@@ -801,7 +801,7 @@ struct track_database {
     items[norm(info.filename)] = info;
   }
 
-  bool load(const std::filesystem::path& dbfile)
+  bool load(const path& dbfile)
   {
     items.clear();
 
@@ -852,7 +852,7 @@ struct track_database {
     return true;
   }
 
-  bool save(const std::filesystem::path& dbfile) const
+  bool save(const path& dbfile) const
   {
     auto tracks = json::array();
     for (const auto& [key, ti] : items) {
@@ -906,16 +906,16 @@ track_database g_db;
 uint32_t g_device_rate = 44100;
 uint32_t g_device_channels = 2;
 
-std::vector<std::filesystem::path> g_mix_tracks;
+vector<path> g_mix_tracks;
 
 struct MixCue {
   double frame;                 // absolute cue frame in mix timeline
   long   bar;                   // 1-based global bar number in the mix
-  std::filesystem::path track;  // which track this cue comes from
+  path track;  // which track this cue comes from
   int    local_bar;             // bar number within that track (1-based)
 };
 
-std::vector<MixCue> g_mix_cues;
+vector<MixCue> g_mix_cues;
 
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
@@ -993,7 +993,7 @@ private:
 };
 
 [[nodiscard]] expected<interleaved<float>, string>
-load_track(const std::filesystem::path& file)
+load_track(const path& file)
 {
   SndfileHandle sf(file.string());
   if (sf.error()) {
@@ -1094,7 +1094,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
   const float attack_step  = max_attack_db_per_s / static_cast<float>(sr);
-  std::vector<float> att(frames, 0.f);
+  vector<float> att(frames, 0.f);
   att[frames - 1] = required_att_dB(frames - 1);
   for (size_t i = frames - 1; i-- > 0; ) {
     att[i] = std::max(required_att_dB(i), att[i + 1] - attack_step);
@@ -1114,13 +1114,13 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
 // Compute default mix BPM as mean of track BPMs for the given files.
 [[nodiscard]] double compute_default_mix_bpm(
-  const std::vector<std::filesystem::path>& files
+  const vector<path>& files
 ) {
   if (files.empty()) {
     throw std::runtime_error("No tracks to compute default BPM.");
   }
 
-  std::vector<TrackInfo> tracks;
+  vector<TrackInfo> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
@@ -1141,14 +1141,14 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
 // 'bpm' is the mix BPM to use (no defaulting inside).
 [[nodiscard]] shared_ptr<interleaved<float>> build_mix_track(
-  const std::vector<std::filesystem::path>& files,
+  const vector<path>& files,
   double bpm,
   int src_type = SRC_LINEAR
 ) {
   if (files.empty()) return {};
 
   // Collect TrackInfo and ensure cues exist
-  std::vector<TrackInfo> tracks;
+  vector<TrackInfo> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
@@ -1184,7 +1184,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
     double lufs;
     double offset = 0.0;
   };
-  std::vector<expected<Item, string>> items_exp(files.size());
+  vector<expected<Item, string>> items_exp(files.size());
 
   // Parallel per-track processing
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
@@ -1232,7 +1232,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
     }
   );
 
-  std::vector<Item> items;
+  vector<Item> items;
   for (auto &item: items_exp) {
     if (!item) throw std::runtime_error(item.error());
     items.push_back(std::move(*item));
@@ -1329,7 +1329,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
   // Deduplicate by bar, keeping the last entry for each bar.
   {
-    std::vector<MixCue> deduped;
+    vector<MixCue> deduped;
     deduped.reserve(g_mix_cues.size());
 
     std::size_t i = 0;
@@ -1419,8 +1419,8 @@ void play(
 // - Whitespace splits args when not inside quotes.
 // - Single quotes: literals (no escapes inside).
 // - Double quotes: supports backslash escaping of \" and \\ (simple treatment).
-[[nodiscard]] std::vector<string> parse_command_line(const string& s) {
-  std::vector<string> out;
+[[nodiscard]] vector<string> parse_command_line(const string& s) {
+  vector<string> out;
   string cur;
   bool in_single = false, in_double = false, escape = false;
 
@@ -1565,7 +1565,7 @@ void register_volume_command(REPL& repl, string label) {
   );
 }
 
-void run_track_info_shell(const std::filesystem::path& f, const std::filesystem::path& trackdb_path)
+void run_track_info_shell(const path& f, const path& trackdb_path)
 {
   auto t_exp = load_track(f);
   if (!t_exp) {
@@ -1894,7 +1894,7 @@ char** clmix_completion(const char* text, int start, int end) {
 
   // Generator that iterates over g_db.items and returns matching filenames.
   auto generator = [](const char* text, int state) -> char* {
-    static std::vector<string> matches;
+    static vector<string> matches;
     static size_t index;
 
     if (state == 0) {
@@ -1956,7 +1956,7 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
 }
 
 // Helper: export current mix (based on g_mix_tracks) to a file.
-bool export_current_mix(const std::filesystem::path& out_path,
+bool export_current_mix(const path& out_path,
                         std::optional<double> force_bpm = std::nullopt)
 {
   if (g_mix_tracks.empty()) {
@@ -2025,14 +2025,14 @@ int main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  const std::filesystem::path trackdb_path = argv[1];
+  const path trackdb_path = argv[1];
 
   g_db.load(trackdb_path);
 
   // Command-line options (after trackdb_path)
-  std::vector<Matcher>                 opt_random_exprs;
+  vector<Matcher>                 opt_random_exprs;
   std::optional<double>                opt_bpm;
-  std::optional<std::filesystem::path> opt_export_path;
+  std::optional<path> opt_export_path;
 
   // Prepare getopt_long
   int opt;
@@ -2068,7 +2068,7 @@ int main(int argc, char** argv)
         break;
       }
       case 'e':
-        opt_export_path = std::filesystem::path(optarg);
+        opt_export_path = path(optarg);
         break;
       default:
         return EXIT_FAILURE;
@@ -2086,7 +2086,7 @@ int main(int argc, char** argv)
     g_mix_tracks.clear();
 
     for (const auto& matcher : opt_random_exprs) {
-      std::vector<std::filesystem::path> group;
+      vector<path> group;
       group.reserve(g_db.items.size());
       for (const auto& kv : g_db.items) {
         const TrackInfo& ti = kv.second;
@@ -2182,7 +2182,7 @@ int main(int argc, char** argv)
         println(cerr, "Usage: add <file>");
         return;
       }
-      std::filesystem::path f = a[0];
+      path f = a[0];
       if (!g_db.find(f)) {
         run_track_info_shell(f, trackdb_path);
       }
@@ -2304,7 +2304,7 @@ int main(int argc, char** argv)
       }
 
       // Move to vector and sort by count (descending), then by tag name
-      std::vector<std::pair<std::string, std::size_t>> v;
+      vector<std::pair<std::string, std::size_t>> v;
       v.reserve(counts.size());
       for (auto& [tag, cnt] : counts) {
         v.emplace_back(tag, cnt);
@@ -2396,7 +2396,7 @@ int main(int argc, char** argv)
 
       auto append_block_for_matcher = [&](const Matcher& matcher,
                                           std::string_view desc) -> bool {
-        std::vector<std::filesystem::path> group;
+        vector<path> group;
         group.reserve(g_db.items.size());
         for (const auto& kv : g_db.items) {
           const TrackInfo& ti = kv.second;
