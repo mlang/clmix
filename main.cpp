@@ -12,7 +12,6 @@
 #include <cmath>
 #include <concepts>
 #include <cstring> // for std::memcpy
-#include <deque>
 #include <cstdlib>
 #include <cstdint>
 #include <execution>
@@ -21,11 +20,9 @@
 #include <fstream>
 #include <functional>
 #include <future>
-#include <getopt.h>
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <string_view>
 #include <map>
 #include <memory>
 #include <numbers>
@@ -46,11 +43,12 @@
 
 #include "vendor/mdspan.hpp"
 
-#include <readline/history.h>
-#include <readline/readline.h>
-
+#include <nlohmann/json.hpp>
 #include <sndfile.hh>
 
+#include <getopt.h>
+#include <readline/history.h>
+#include <readline/readline.h>
 #include <samplerate.h>
 
 extern "C" {
@@ -60,10 +58,8 @@ extern "C" {
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
-#include <nlohmann/json.hpp>
 
 #include <ebur128.h>
-
 
 namespace {
 
@@ -72,30 +68,36 @@ template<typename T>
 using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
 
 using nlohmann::json;
+using std::cerr, std::cout;
 using std::expected, std::unexpected;
+using std::floating_point;
+using std::in_range;
+using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
+      std::is_same_v;
+using std::println;
 using std::shared_ptr, std::unique_ptr;
 using std::string, std::string_view;
 
 constexpr float kHeadroomDB = -2.0f;
 
-template<std::floating_point T>
+template<floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
 { return std::pow(T(10.0), db * T(0.05)); }
 
-template<std::floating_point T>
+template<floating_point T>
 [[nodiscard]] constexpr T ampdb(T amp) noexcept
 { return T(20.0) * std::log10(amp); }
 
 template<typename T>
-requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
+requires (is_integral_v<T> || is_floating_point_v<T>)
 [[nodiscard]] expected<T, string> parse_number(string_view s)
 {
-  static_assert(!std::is_same_v<T, bool>, "parse_number<bool> is not supported");
+  static_assert(!is_same_v<T, bool>, "parse_number<bool> is not supported");
   T v{};
   const char* b = s.data();
   const char* e = b + s.size();
 
-  auto to_msg = [](std::errc ec) -> std::string {
+  auto to_msg = [](std::errc ec) -> string {
     assert(ec != std::errc());
     if (ec == std::errc::invalid_argument) return "not a number";
     if (ec == std::errc::result_out_of_range) return "out of range";
@@ -103,7 +105,7 @@ requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
   };
 
   std::from_chars_result r = [&]{
-    if constexpr (std::is_floating_point_v<T>)
+    if constexpr (is_floating_point_v<T>)
       return std::from_chars(b, e, v, std::chars_format::general);
     return std::from_chars(b, e, v);
   }();
@@ -157,7 +159,7 @@ public:
       T p = T(0);
       for (std::size_t c = 0; c < ch_; ++c) {
         T v = row_[c];
-        if constexpr (std::is_floating_point_v<T>) {
+        if constexpr (is_floating_point_v<T>) {
           if (!std::isfinite(v)) continue;
         }
         v = std::abs(v);
@@ -172,7 +174,7 @@ public:
     frame_view(T* row, std::size_t ch)
       : frame_view_base<T>(row, ch) {}
 
-    template<typename U> requires std::is_arithmetic_v<U>
+    template<typename U> requires is_arithmetic_v<U>
     frame_view& operator*=(U gain) noexcept {
       const T g = static_cast<T>(gain);
       for (std::size_t c = 0; c < this->ch_; ++c)
@@ -211,7 +213,7 @@ public:
     T p = T(0.0);
     for (const T& s: storage) {
       T a = std::abs(s);
-      if constexpr (std::is_floating_point_v<T>) {
+      if constexpr (is_floating_point_v<T>) {
         if (!std::isfinite(a)) continue;
       }
       if (a > p) p = a;
@@ -228,7 +230,7 @@ public:
   void shrink_to_fit() { storage.shrink_to_fit(); }
 
   // Scale all samples in-place by gain.
-  template<typename U> requires std::is_arithmetic_v<U>
+  template<typename U> requires is_arithmetic_v<U>
   interleaved &operator*=(U gain) noexcept
   {
     const T g = static_cast<T>(gain);
@@ -237,7 +239,7 @@ public:
   }
 };
 
-template<std::floating_point T>
+template<floating_point T>
 void ensure_headroom(interleaved<T> &audio, T headroom_dB)
 {
   const T headroom_linear = dbamp(headroom_dB);
@@ -306,7 +308,7 @@ change_tempo(
   assert(to_rate        > 0);
 
   // libsamplerate constraints: still return error on overflow.
-  if (!std::in_range<long>(in_frames_sz))
+  if (!in_range<long>(in_frames_sz))
     return unexpected(
       "Input too large for libsamplerate (frame count exceeds 'long')."
     );
@@ -328,7 +330,7 @@ change_tempo(
   const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
   const auto   est_out_frames_sz = static_cast<std::size_t>(est_out_frames_d);
 
-  if (!std::in_range<long>(est_out_frames_sz))
+  if (!in_range<long>(est_out_frames_sz))
     return unexpected(
       "Output too large for libsamplerate (frame count exceeds 'long')."
     );
@@ -336,7 +338,7 @@ change_tempo(
   const long out_frames_est = static_cast<long>(est_out_frames_d);
 
   // libsamplerate channel constraint: still return error.
-  if (!std::in_range<int>(channels))
+  if (!in_range<int>(channels))
     return unexpected(
       "Channel count too large for libsamplerate."
     );
@@ -489,7 +491,7 @@ struct TrackInfo {
   double upbeat_beats = 0.0;
   double time_offset_sec = 0.0;
   std::vector<int> cue_bars; // 1-based bar numbers
-  std::set<std::string> tags; // unique tags
+  std::set<string> tags; // unique tags
 };
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TrackInfo,
@@ -501,7 +503,7 @@ class Matcher {
   using Ptr = shared_ptr<const Node>;
 
   struct Node {
-    struct Symbol { std::string name; };
+    struct Symbol { string name; };
     struct Not    { Ptr child; };
     struct And    { Ptr lhs; Ptr rhs; };
     struct Or     { Ptr lhs; Ptr rhs; };
@@ -526,17 +528,17 @@ class Matcher {
   static bool eval_node(const Node& n, const TrackInfo& ti) {
     return std::visit([&](const auto& node) -> bool {
       using T = std::decay_t<decltype(node)>;
-      if constexpr (std::is_same_v<T, Node::Symbol>) {
+      if constexpr (is_same_v<T, Node::Symbol>) {
         return ti.tags.contains(node.name);
-      } else if constexpr (std::is_same_v<T, Node::Not>) {
+      } else if constexpr (is_same_v<T, Node::Not>) {
         return !eval_node(*node.child, ti);
-      } else if constexpr (std::is_same_v<T, Node::And>) {
+      } else if constexpr (is_same_v<T, Node::And>) {
         if (!eval_node(*node.lhs, ti)) return false; // short-circuit
         return eval_node(*node.rhs, ti);
-      } else if constexpr (std::is_same_v<T, Node::Or>) {
+      } else if constexpr (is_same_v<T, Node::Or>) {
         if (eval_node(*node.lhs, ti)) return true;   // short-circuit
         return eval_node(*node.rhs, ti);
-      } else if constexpr (std::is_same_v<T, Node::Compare>) {
+      } else if constexpr (is_same_v<T, Node::Compare>) {
         const double bpm = ti.bpm;
         switch (node.op) {
           case Node::Compare::Op::LT: return bpm <  node.value;
@@ -554,7 +556,7 @@ public:
   Matcher() = default; // an empty expr; operator() returns true
 
   // Create an atomic symbol/tag expression
-  static Matcher tag(std::string name) {
+  static Matcher tag(string name) {
     return Matcher(std::make_shared<Node>(Node::Symbol{std::move(name)}));
   }
 
@@ -576,9 +578,9 @@ public:
   // Parse from a string with operators: ~ (NOT), & (AND), | (OR), and parentheses.
   // Precedence: ~ > & > |
   // Also supports BPM comparisons like ">=140bpm & <150bpm".
-  static Matcher parse(std::string_view input) {
+  static Matcher parse(string_view input) {
     struct Parser {
-      std::string_view s;
+      string_view s;
       size_t i = 0;
 
       void skip_ws() {
@@ -597,8 +599,8 @@ public:
             && c != '|' && c != '&' && c != '~' && c != '(' && c != ')';
       }
 
-      [[noreturn]] void error(std::string_view msg) const {
-        std::string err("Matcher parse error: ");
+      [[noreturn]] void error(string_view msg) const {
+        string err("Matcher parse error: ");
         err.append(msg);
         err.append(" at position ");
         err.append(std::to_string(i));
@@ -668,7 +670,7 @@ public:
           return false;
         }
 
-        std::string num_str(s.substr(start_num, i - start_num));
+        string num_str(s.substr(start_num, i - start_num));
         double v{};
         auto res = std::from_chars(num_str.data(), num_str.data() + num_str.size(), v);
         if (res.ec != std::errc{}) {
@@ -676,7 +678,7 @@ public:
           return false;
         }
 
-        auto match_suffix = [&](std::string_view suf) {
+        auto match_suffix = [&](string_view suf) {
           if (i + suf.size() > s.size()) return false;
           for (size_t k = 0; k < suf.size(); ++k) {
             char c1 = static_cast<char>(std::tolower(static_cast<unsigned char>(s[i + k])));
@@ -756,7 +758,7 @@ public:
 
         const size_t start = i;
         while (i < s.size() && is_ident_char(s[i])) ++i;
-        std::string name(s.substr(start, i - start));
+        string name(s.substr(start, i - start));
 
         // Restrict tags starting with digits: must be all digits
         if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
@@ -813,13 +815,13 @@ struct track_database {
     try {
       in >> j;
     } catch (const std::exception& e) {
-      std::println(std::cerr, "Failed to parse JSON trackdb '{}': {}",
+      println(cerr, "Failed to parse JSON trackdb '{}': {}",
                    dbfile.generic_string(), e.what());
       return false;
     }
 
     if (!j.is_object()) {
-      std::println(std::cerr, "Invalid JSON trackdb '{}': root is not an object",
+      println(cerr, "Invalid JSON trackdb '{}': root is not an object",
                    dbfile.generic_string());
       return false;
     }
@@ -827,13 +829,13 @@ struct track_database {
     // Version is optional but recommended; currently we only support 1.
     int version = j.value("version", 1);
     if (version != 1) {
-      std::println(std::cerr, "Unsupported trackdb JSON version {} in '{}'",
+      println(cerr, "Unsupported trackdb JSON version {} in '{}'",
                    version, dbfile.generic_string());
       return false;
     }
 
     if (!j.contains("tracks") || !j["tracks"].is_array()) {
-      std::println(std::cerr, "Invalid JSON trackdb '{}': missing 'tracks' array",
+      println(cerr, "Invalid JSON trackdb '{}': missing 'tracks' array",
                    dbfile.generic_string());
       return false;
     }
@@ -841,7 +843,7 @@ struct track_database {
     try {
       for (const auto& jti : j["tracks"]) upsert(jti.get<TrackInfo>());
     } catch (const std::exception& e) {
-      std::println(std::cerr, "Error decoding TrackInfo from JSON '{}': {}",
+      println(cerr, "Error decoding TrackInfo from JSON '{}': {}",
                    dbfile.generic_string(), e.what());
       items.clear();
       return false;
@@ -864,7 +866,7 @@ struct track_database {
 
     std::ofstream out(dbfile, std::ios::trunc);
     if (!out.is_open()) {
-      std::println(std::cerr, "Failed to open JSON trackdb for writing: {}",
+      println(cerr, "Failed to open JSON trackdb for writing: {}",
                    dbfile.generic_string());
       return false;
     }
@@ -872,7 +874,7 @@ struct track_database {
     try {
       out << root.dump(2); // pretty-print with 2-space indent
     } catch (const std::exception& e) {
-      std::println(std::cerr, "Failed to write JSON trackdb '{}': {}",
+      println(cerr, "Failed to write JSON trackdb '{}': {}",
                    dbfile.generic_string(), e.what());
       return false;
     }
@@ -936,7 +938,7 @@ public:
     if (ma_result res = ma_device_init(nullptr, &config, &device_);
         res != MA_SUCCESS) {
       throw std::runtime_error(
-        std::string("Audio device init failed: ") + ma_result_description(res)
+        string("Audio device init failed: ") + ma_result_description(res)
       );
     }
   }
@@ -951,7 +953,7 @@ public:
   void start() {
     if (ma_result res = ma_device_start(&device_); res != MA_SUCCESS) {
       throw std::runtime_error(
-        std::string("Audio device start failed: ") + ma_result_description(res)
+        string("Audio device start failed: ") + ma_result_description(res)
       );
     }
   }
@@ -1169,7 +1171,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   g_mix_bpb = tracks.front().beats_per_bar;
 
   const uint32_t out_rate = g_device_rate;
-  if (!std::in_range<int>(g_device_channels))
+  if (!in_range<int>(g_device_channels))
     throw std::invalid_argument("Device channel count not representable as int");
   const int outCh = static_cast<int>(g_device_channels);
   const double fpb = (double)out_rate * 60.0 / bpm;
@@ -1223,7 +1225,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
           );
         }
       ).transform_error(
-        [&](std::string error_msg) {
+        [&](string error_msg) {
           return info.filename.generic_string() + ": " + error_msg;
         }
       );
@@ -1417,9 +1419,9 @@ void play(
 // - Whitespace splits args when not inside quotes.
 // - Single quotes: literals (no escapes inside).
 // - Double quotes: supports backslash escaping of \" and \\ (simple treatment).
-[[nodiscard]] std::vector<std::string> parse_command_line(const std::string& s) {
-  std::vector<std::string> out;
-  std::string cur;
+[[nodiscard]] std::vector<string> parse_command_line(const string& s) {
+  std::vector<string> out;
+  string cur;
   bool in_single = false, in_double = false, escape = false;
 
   auto push = [&](){
@@ -1475,17 +1477,17 @@ void play(
 }
 
 // Simple command registry.
-using Command = std::move_only_function<void(std::span<const std::string>)>;
-
-struct CommandEntry {
-  std::string help;
-  Command fn;
+using command_args = std::span<const string>;
+using command = std::move_only_function<void(command_args)>;
+struct command_entry {
+  string help;
+  command fn;
 };
 
 class REPL {
 public:
-  void register_command(std::string name, std::string help, Command fn) {
-    commands_.emplace(std::move(name), CommandEntry{std::move(help), std::move(fn)});
+  void register_command(string name, string help, command fn) {
+    commands_.emplace(std::move(name), command_entry{std::move(help), std::move(fn)});
   }
 
   void run(const char* prompt = "clmix> ") {
@@ -1495,7 +1497,7 @@ public:
       if (!line) break; // EOF (Ctrl-D)
       unique_ptr<char, decltype(&std::free)> guard(line, &std::free);
 
-      std::string input(line);
+      string input(line);
       if (input.empty()) continue;
 
       add_history(line);
@@ -1504,15 +1506,15 @@ public:
 
       auto it = commands_.find(args[0]);
       if (it == commands_.end()) {
-        std::println(std::cerr,  "Unknown command: {}", args[0]);
+        println(cerr, "Unknown command: {}", args[0]);
         continue;
       }
       try {
-        it->second.fn(std::span<const std::string>{args}.subspan(1));
+        it->second.fn(std::span<const string>{args}.subspan(1));
       } catch (const std::exception& e) {
-        std::println(std::cerr, "Error: {}", e.what());
+        println(cerr, "Error: {}", e.what());
       } catch (...) {
-        std::println(std::cerr, "Unknown error.");
+        println(cerr, "Unknown error.");
       }
     }
   }
@@ -1520,33 +1522,33 @@ public:
   void stop() { running_ = false; }
 
   void print_help() const {
-    std::cout << "Commands:\n";
+    cout << "Commands:\n";
     for (const auto& [name, entry] : commands_) {
-      std::cout << "  " << name;
-      if (!entry.help.empty()) std::cout << " - " << entry.help;
-      std::cout << "\n";
+      cout << "  " << name;
+      if (!entry.help.empty()) cout << " - " << entry.help;
+      cout << "\n";
     }
   }
 
 private:
-  std::map<std::string, CommandEntry> commands_;
+  std::map<string, command_entry> commands_;
   bool running_ = true;
 };
 
-void register_volume_command(REPL& repl, std::string label) {
+void register_volume_command(REPL& repl, string label) {
   repl.register_command(
     "vol",
     "vol [dB] - get/set " + label + " volume in dB (0=unity, negative attenuates)",
-    [label](std::span<const std::string> a){
+    [label](command_args a){
       if (a.empty()) {
         float db = g_player.trackGainDB.load();
         float lin = dbamp(db);
-        std::println(std::cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
+        println(cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
         return;
       }
-      std::string s = a[0];
+      string s = a[0];
       if (s.size() >= 2) {
-        std::string tail = s.substr(s.size() - 2);
+        string tail = s.substr(s.size() - 2);
         std::transform(tail.begin(), tail.end(), tail.begin(),
                        [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
         if (tail == "db") s.resize(s.size() - 2);
@@ -1555,9 +1557,9 @@ void register_volume_command(REPL& repl, std::string label) {
         const float db = std::clamp(*v, -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
-        std::println(std::cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
+        println(cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
       } else {
-        std::println(std::cerr, "Invalid dB value: {}", v.error());
+        println(cerr, "Invalid dB value: {}", v.error());
       }
     }
   );
@@ -1567,7 +1569,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
 {
   auto t_exp = load_track(f);
   if (!t_exp) {
-    std::println(std::cerr, "Error: {}", t_exp.error());
+    println(cerr, "Error: {}", t_exp.error());
     return;
   }
   auto tr = std::make_shared<interleaved<float>>(std::move(*t_exp));
@@ -1587,16 +1589,16 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
         ti.bpm = guessedBpm;
       }
     } catch (const std::exception& e) {
-      std::println(std::cerr, "BPM detection failed: {}", e.what());
+      println(cerr, "BPM detection failed: {}", e.what());
     }
   }
 
-  std::println(std::cout, "Opened {}", f.generic_string());
-  if (guessedBpm > 0) std::println(std::cout, "Guessed BPM: {:.2f}", guessedBpm);
-  std::println(std::cout, "BPM: {:.2f}", ti.bpm);
-  std::println(std::cout, "Beats/bar: {}", ti.beats_per_bar);
-  std::println(std::cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
-  std::println(std::cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+  println(cout, "Opened {}", f.generic_string());
+  if (guessedBpm > 0) println(cout, "Guessed BPM: {:.2f}", guessedBpm);
+  println(cout, "BPM: {:.2f}", ti.bpm);
+  println(cout, "Beats/bar: {}", ti.beats_per_bar);
+  println(cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
+  println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
 
   // Initialize player state for this track (not playing yet)
   g_player.track = tr;
@@ -1617,7 +1619,7 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
     double beats = (double)total_frames / framesPerBeat;
     double bars = beats / static_cast<double>(bpbNow);
-    std::println(std::cout, "Estimated bars: {:.2f}", bars);
+    println(cout, "Estimated bars: {:.2f}", bars);
   };
   print_estimated_bars();
 
@@ -1625,16 +1627,18 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
   REPL sub;
   bool dirty = false;
 
-  sub.register_command("help", "List commands", [&](std::span<const std::string>){ sub.print_help(); });
+  sub.register_command("help", "List commands", [&](command_args)
+    { sub.print_help(); }
+  );
 
-  sub.register_command("bpm", "bpm [value] - get/set BPM", [&](std::span<const std::string> a){
+  sub.register_command("bpm", "bpm [value] - get/set BPM", [&](command_args a){
     if (a.empty()) {
-      std::println(std::cout, "BPM: {:.2f}", g_player.metro.bpm.load());
+      println(cout, "BPM: {:.2f}", g_player.metro.bpm.load());
       return;
     }
     if (auto v = parse_number<double>(a[0]); v) {
       if (*v <= 0.0) {
-        std::println(std::cerr, "Invalid BPM: must be > 0");
+        println(cerr, "Invalid BPM: must be > 0");
         return;
       }
       g_player.metro.bpm.store(*v);
@@ -1642,47 +1646,53 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       dirty = true;
       print_estimated_bars();
     } else {
-      std::println(std::cerr, "Invalid BPM: {}", v.error());
+      println(cerr, "Invalid BPM: {}", v.error());
     }
   });
 
-  sub.register_command("bpb", "bpb [value] - get/set beats per bar", [&](std::span<const std::string> a){
-    if (a.empty()) {
-      std::println(std::cout, "Beats/bar: {}", g_player.metro.bpb.load());
-      return;
+  sub.register_command("bpb",
+    "bpb [value] - get/set beats per bar",
+    [&](command_args a){
+      if (a.empty()) {
+	println(cout, "Beats/bar: {}", g_player.metro.bpb.load());
+	return;
+      }
+      if (auto v = parse_number<unsigned>(a[0]); v) {
+	if (*v == 0u) {
+	  println(cerr, "Invalid beats-per-bar: must be > 0");
+	  return;
+	}
+	g_player.metro.bpb.store(*v);
+	ti.beats_per_bar = *v;
+	dirty = true;
+	print_estimated_bars();
+      } else {
+	println(cerr, "Invalid beats-per-bar: {}", v.error());
+      }
     }
-    if (auto v = parse_number<unsigned>(a[0]); v) {
-      if (*v == 0u) {
-        std::println(std::cerr, "Invalid beats-per-bar: must be > 0");
+  );
+
+  sub.register_command("upbeat",
+    "upbeat [beats] - get/set upbeat in beats (can be negative)",
+    [&](command_args a) {
+      if (a.empty()) {
+        println(cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
         return;
       }
-      g_player.metro.bpb.store(*v);
-      ti.beats_per_bar = *v;
-      dirty = true;
-      print_estimated_bars();
-    } else {
-      std::println(std::cerr, "Invalid beats-per-bar: {}", v.error());
+      if (auto v = parse_number<double>(a[0]); v) {
+        ti.upbeat_beats = *v;
+        g_player.upbeatBeats.store(*v);
+        dirty = true;
+        print_estimated_bars();
+      } else {
+        println(cerr, "Invalid upbeat value: {}", v.error());
+      }
     }
-  });
+  );
 
-  sub.register_command("upbeat", "upbeat [beats] - get/set upbeat in beats (can be negative)", [&](std::span<const std::string> a){
+  sub.register_command("offset", "offset [seconds] - get/set time offset in seconds (can be negative)", [&](std::span<const string> a){
     if (a.empty()) {
-      std::println(std::cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
-      return;
-    }
-    if (auto v = parse_number<double>(a[0]); v) {
-      ti.upbeat_beats = *v;
-      g_player.upbeatBeats.store(*v);
-      dirty = true;
-      print_estimated_bars();
-    } else {
-      std::println(std::cerr, "Invalid upbeat value: {}", v.error());
-    }
-  });
-
-  sub.register_command("offset", "offset [seconds] - get/set time offset in seconds (can be negative)", [&](std::span<const std::string> a){
-    if (a.empty()) {
-      std::println(std::cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+      println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
       return;
     }
     if (auto v = parse_number<double>(a[0]); v) {
@@ -1691,18 +1701,18 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
       dirty = true;
       print_estimated_bars();
     } else {
-      std::println(std::cerr, "Invalid time offset: {}", v.error());
+      println(cerr, "Invalid time offset: {}", v.error());
     }
   });
 
-  sub.register_command("cue", "cue <bar> - add a cue at given bar (1-based)", [&](std::span<const std::string> a){
+  sub.register_command("cue", "cue <bar> - add a cue at given bar (1-based)", [&](std::span<const string> a){
     if (a.size() != 1) {
-      std::println(std::cerr, "Usage: cue <bar>");
+      println(cerr, "Usage: cue <bar>");
       return;
     }
     if (auto bar = parse_number<int>(a[0]); bar) {
       if (*bar <= 0) {
-        std::println(std::cerr, "Invalid bar: must be > 0");
+        println(cerr, "Invalid bar: must be > 0");
         return;
       }
       if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
@@ -1711,23 +1721,23 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
         dirty = true;
       }
       if (ti.cue_bars.empty()) {
-        std::println(std::cout, "(no cues)");
+        println(cout, "(no cues)");
       } else {
-        std::cout << "Cues: ";
+        cout << "Cues: ";
         for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
-          if (i) std::cout << ',';
-          std::cout << ti.cue_bars[i];
+          if (i) cout << ',';
+          cout << ti.cue_bars[i];
         }
-        std::cout << "\n";
+        cout << "\n";
       }
     } else {
-      std::println(std::cerr, "Invalid bar: {}", bar.error());
+      println(cerr, "Invalid bar: {}", bar.error());
     }
   });
 
-  sub.register_command("uncue", "uncue <bar> - remove a cue", [&](std::span<const std::string> a){
+  sub.register_command("uncue", "uncue <bar> - remove a cue", [&](std::span<const string> a){
     if (a.size() != 1) {
-      std::println(std::cerr, "Usage: uncue <bar>");
+      println(cerr, "Usage: uncue <bar>");
       return;
     }
     if (auto bar = parse_number<int>(a[0]); bar) {
@@ -1735,96 +1745,96 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
         dirty = true;
       }
     } else {
-      std::println(std::cerr, "Invalid bar: {}", bar.error());
+      println(cerr, "Invalid bar: {}", bar.error());
     }
   });
 
-  sub.register_command("cues", "List cue bars", [&](std::span<const std::string>){
+  sub.register_command("cues", "List cue bars", [&](std::span<const string>){
     if (ti.cue_bars.empty()) {
-      std::println(std::cout, "(no cues)");
+      println(cout, "(no cues)");
       return;
     }
     for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
-      if (i) std::cout << ',';
-      std::cout << ti.cue_bars[i];
+      if (i) cout << ',';
+      cout << ti.cue_bars[i];
     }
-    std::cout << "\n";
+    cout << "\n";
   });
 
-  sub.register_command("tags", "List tags for this track", [&](std::span<const std::string>){
+  sub.register_command("tags", "List tags for this track", [&](std::span<const string>){
     if (ti.tags.empty()) {
-      std::println(std::cout, "(no tags)");
+      println(cout, "(no tags)");
       return;
     }
     bool first = true;
     for (const auto& tag : ti.tags) {
-      if (!first) std::cout << ", ";
-      std::cout << tag;
+      if (!first) cout << ", ";
+      cout << tag;
       first = false;
     }
-    std::cout << "\n";
+    cout << "\n";
   });
 
-  sub.register_command("tag", "tag <name> - add a tag to this track", [&](std::span<const std::string> a){
+  sub.register_command("tag", "tag <name> - add a tag to this track", [&](std::span<const string> a){
     if (a.size() != 1) {
-      std::println(std::cerr, "Usage: tag <name>");
+      println(cerr, "Usage: tag <name>");
       return;
     }
-    std::string name = a[0];
+    string name = a[0];
     auto first = std::find_if_not(name.begin(), name.end(),
                                   [](unsigned char c){ return std::isspace(c); });
     auto last  = std::find_if_not(name.rbegin(), name.rend(),
                                   [](unsigned char c){ return std::isspace(c); }).base();
     if (first >= last) {
-      std::println(std::cerr, "Empty tag name.");
+      println(cerr, "Empty tag name.");
       return;
     }
-    std::string trimmed(first, last);
+    string trimmed(first, last);
     if (trimmed.empty()) {
-      std::println(std::cerr, "Empty tag name.");
+      println(cerr, "Empty tag name.");
       return;
     }
     ti.tags.insert(trimmed);
     dirty = true;
-    std::cout << "Tags: ";
+    cout << "Tags: ";
     bool firstOut = true;
     for (const auto& tag : ti.tags) {
-      if (!firstOut) std::cout << ", ";
-      std::cout << tag;
+      if (!firstOut) cout << ", ";
+      cout << tag;
       firstOut = false;
     }
-    std::cout << "\n";
+    cout << "\n";
   });
 
   register_volume_command(sub, "Track");
 
-  sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](std::span<const std::string>){
+  sub.register_command("save", "Persist BPM/Beats-per-bar to trackdb", [&](std::span<const string>){
     g_db.upsert(ti);
     if (g_db.save(trackdb_path)) {
-      std::println(std::cout, "Saved to {}", trackdb_path.generic_string());
+      println(cout, "Saved to {}", trackdb_path.generic_string());
       dirty = false;
     } else {
-      std::println(std::cerr, "Failed to save DB to {}",
+      println(cerr, "Failed to save DB to {}",
                    trackdb_path.generic_string());
     }
   });
 
-  sub.register_command("play", "Start playback with metronome overlay", [&](std::span<const std::string>){
+  sub.register_command("play", "Start playback with metronome overlay", [&](std::span<const string>){
     if (!g_player.track) {
-      std::println(std::cerr, "No track loaded.");
+      println(cerr, "No track loaded.");
       return;
     }
     g_player.seekPending.store(false);
     g_player.playing.store(true);
   });
 
-  sub.register_command("stop", "Stop playback", [&](std::span<const std::string>){
+  sub.register_command("stop", "Stop playback", [&](std::span<const string>){
     g_player.playing.store(false);
   });
 
-  sub.register_command("seek", "seek <bar> - jump to given bar (1-based)", [&](std::span<const std::string> a){
+  sub.register_command("seek", "seek <bar> - jump to given bar (1-based)", [&](std::span<const string> a){
     if (a.size() != 1) {
-      std::println(std::cerr, "Usage: seek <bar>");
+      println(cerr, "Usage: seek <bar>");
       return;
     }
     if (auto bar1 = parse_number<int>(a[0]); bar1) {
@@ -1847,11 +1857,11 @@ void run_track_info_shell(const std::filesystem::path& f, const std::filesystem:
         g_player.seekPending.store(true);
       }
     } else {
-      std::println(std::cerr, "Invalid bar number: {}", bar1.error());
+      println(cerr, "Invalid bar number: {}", bar1.error());
     }
   });
 
-  sub.register_command("exit", "Leave track shell", [&](std::span<const std::string>){
+  sub.register_command("exit", "Leave track shell", [&](std::span<const string>){
     sub.stop();
   });
 
@@ -1866,7 +1876,7 @@ char** clmix_completion(const char* text, int start, int end) {
   const char* line = rl_line_buffer;
 
   // Extract the first word (command) from the line up to 'start'
-  std::string_view sv(line, static_cast<size_t>(start));
+  string_view sv(line, static_cast<size_t>(start));
   auto it = std::find_if_not(sv.begin(), sv.end(),
                              [](unsigned char c){ return std::isspace(c); });
   if (it == sv.end()) {
@@ -1875,7 +1885,7 @@ char** clmix_completion(const char* text, int start, int end) {
   auto cmd_start = it;
   auto cmd_end = std::find_if(cmd_start, sv.end(),
                               [](unsigned char c){ return std::isspace(c); });
-  std::string cmd(cmd_start, cmd_end);
+  string cmd(cmd_start, cmd_end);
 
   // Only provide custom completion for the first argument of "track-info"
   if (cmd != "track-info") {
@@ -1884,17 +1894,17 @@ char** clmix_completion(const char* text, int start, int end) {
 
   // Generator that iterates over g_db.items and returns matching filenames.
   auto generator = [](const char* text, int state) -> char* {
-    static std::vector<std::string> matches;
+    static std::vector<string> matches;
     static size_t index;
 
     if (state == 0) {
       matches.clear();
       index = 0;
 
-      std::string prefix(text);
+      string prefix(text);
       for (const auto& [path, ti] : g_db.items) {
         (void)ti;
-        const std::string name = path.generic_string();
+        const string name = path.generic_string();
         if (name.starts_with(prefix)) {
           matches.push_back(name);
         }
@@ -1905,7 +1915,7 @@ char** clmix_completion(const char* text, int start, int end) {
       return nullptr;
     }
 
-    const std::string& s = matches[index++];
+    const string& s = matches[index++];
     char* out = static_cast<char*>(std::malloc(s.size() + 1));
     if (!out) return nullptr;
     std::memcpy(out, s.c_str(), s.size() + 1);
@@ -1950,7 +1960,7 @@ bool export_current_mix(const std::filesystem::path& out_path,
                         std::optional<double> force_bpm = std::nullopt)
 {
   if (g_mix_tracks.empty()) {
-    std::println(std::cerr, "No tracks in mix.");
+    println(cerr, "No tracks in mix.");
     return false;
   }
 
@@ -1967,8 +1977,8 @@ bool export_current_mix(const std::filesystem::path& out_path,
       g_mix_tracks, bpm, SRC_SINC_BEST_QUALITY
     );
 
-    if (!std::in_range<sf_count_t>(audio->frames())) {
-      std::println(std::cerr, "Export failed: frame count too large for libsndfile.");
+    if (!in_range<sf_count_t>(audio->frames())) {
+      println(cerr, "Export failed: frame count too large for libsndfile.");
       return false;
     }
     const auto frames = static_cast<sf_count_t>(audio->frames());
@@ -1979,25 +1989,25 @@ bool export_current_mix(const std::filesystem::path& out_path,
                      static_cast<int>(audio->channels()),
                      static_cast<int>(audio->sample_rate));
     if (sf.error() != SF_ERR_NO_ERROR) {
-      std::println(std::cerr, "{}: {}", out_path.generic_string(), sf.strError());
+      println(cerr, "{}: {}", out_path.generic_string(), sf.strError());
       return false;
     }
 
     const sf_count_t written = sf.writef(audio->data(), frames);
     if (written != frames) {
-      std::println(std::cerr, "Short write: wrote {} of {} frames",
+      println(cerr, "Short write: wrote {} of {} frames",
                    written, frames);
       return false;
     }
 
-    std::println(std::cout, "Exported {} frames ({} Hz, {} ch) to {}",
+    println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
                  frames, audio->sample_rate, audio->channels(),
                  out_path.generic_string()
     );
 
     return true;
   } catch (const std::exception& e) {
-    std::println(std::cerr, "Export failed: {}", e.what());
+    println(cerr, "Export failed: {}", e.what());
     return false;
   }
 }
@@ -2007,11 +2017,11 @@ bool export_current_mix(const std::filesystem::path& out_path,
 int main(int argc, char** argv)
 {
   if (argc < 2) {
-    std::cerr << "Usage: clmix <trackdb.txt> [options]\n"
-                 "Options:\n"
-                 "  --random <expr>   Build mix from random tracks matching tag/BPM expr (can be given multiple times)\n"
-                 "  --bpm <value>     Force mix BPM\n"
-                 "  --export <file>   Render mix to 24-bit WAV and exit\n";
+    cerr << "Usage: clmix <trackdb.txt> [options]\n"
+            "Options:\n"
+            "  --random <expr>   Build mix from random tracks matching tag/BPM expr (can be given multiple times)\n"
+            "  --bpm <value>     Force mix BPM\n"
+            "  --export <file>   Render mix to 24-bit WAV and exit\n";
     return EXIT_FAILURE;
   }
 
@@ -2042,7 +2052,7 @@ int main(int argc, char** argv)
         try {
           opt_random_exprs.push_back(Matcher::parse(optarg));
         } catch (const std::exception& e) {
-          std::println(std::cerr, "Invalid --random expression '{}': {}", optarg, e.what());
+          println(cerr, "Invalid --random expression '{}': {}", optarg, e.what());
           return EXIT_FAILURE;
         }
         break;
@@ -2050,7 +2060,7 @@ int main(int argc, char** argv)
       case 'b': {
         auto v = parse_number<double>(optarg);
         if (!v || *v <= 0.0) {
-          std::println(std::cerr, "Invalid --bpm value: {}",
+          println(cerr, "Invalid --bpm value: {}",
                        v ? "must be > 0" : v.error());
           return EXIT_FAILURE;
         }
@@ -2068,7 +2078,7 @@ int main(int argc, char** argv)
   // If any --random was given, build g_mix_tracks from DB using one or more Matchers
   if (!opt_random_exprs.empty()) {
     if (g_db.items.empty()) {
-      std::println(std::cerr, "Track DB is empty.");
+      println(cerr, "Track DB is empty.");
       return 1;
     }
 
@@ -2086,7 +2096,7 @@ int main(int argc, char** argv)
       }
 
       if (group.empty()) {
-        std::println(std::cerr,
+        println(cerr,
                      "No tracks with cues matching one of the --random expressions.");
         return 1;
       }
@@ -2099,7 +2109,7 @@ int main(int argc, char** argv)
   // Non-interactive export mode
   if (opt_export_path) {
     if (g_mix_tracks.empty()) {
-      std::println(std::cerr, "No tracks in mix.");
+      println(cerr, "No tracks in mix.");
       return 1;
     }
     bool ok = export_current_mix(*opt_export_path, opt_bpm);
@@ -2126,11 +2136,11 @@ int main(int argc, char** argv)
       try {
         rebuild_mix_into_player(opt_bpm);
       } catch (const std::exception& e) {
-        std::println(std::cerr, "Failed to build initial mix: {}", e.what());
+        println(cerr, "Failed to build initial mix: {}", e.what());
         return EXIT_FAILURE;
       }
     } else if (opt_bpm) {
-      std::println(std::cerr, "Warning: --bpm specified but no tracks in mix.");
+      println(cerr, "Warning: --bpm specified but no tracks in mix.");
     }
 
     // Set up readline completion for track-info filenames (with quoting)
@@ -2140,25 +2150,25 @@ int main(int argc, char** argv)
 
     REPL repl;
 
-    repl.register_command("help", "List commands", [&](std::span<const std::string>){
+    repl.register_command("help", "List commands", [&](std::span<const string>){
       repl.print_help();
     });
-    repl.register_command("exit", "Exit program", [&](std::span<const std::string>){
+    repl.register_command("exit", "Exit program", [&](std::span<const string>){
       repl.stop();
     });
-    repl.register_command("quit", "Alias for exit", [&](std::span<const std::string>){
+    repl.register_command("quit", "Alias for exit", [&](std::span<const string>){
       repl.stop();
     });
-    repl.register_command("echo", "Echo arguments; supports quoted args", [](std::span<const std::string> args){
+    repl.register_command("echo", "Echo arguments; supports quoted args", [](std::span<const string> args){
       for (size_t i = 0; i < args.size(); ++i) {
-        if (i) std::cout << ' ';
-        std::cout << args[i];
+        if (i) cout << ' ';
+        cout << args[i];
       }
-      std::cout << "\n";
+      cout << "\n";
     });
-    repl.register_command("track-info", "track-info <file> - open per-track shell", [&](std::span<const std::string> args){
+    repl.register_command("track-info", "track-info <file> - open per-track shell", [&](std::span<const string> args){
       if (args.size() != 1) {
-        std::println(std::cerr, "Usage: track-info <file>");
+        println(cerr, "Usage: track-info <file>");
         return;
       }
       run_track_info_shell(args[0], trackdb_path);
@@ -2167,9 +2177,9 @@ int main(int argc, char** argv)
     register_volume_command(repl, "Mix");
     
     // Mix commands
-    repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](std::span<const std::string> a){
+    repl.register_command("add", "add <file> - add track to mix (opens track-info if not in DB)", [&](std::span<const string> a){
       if (a.size() != 1) {
-        std::println(std::cerr, "Usage: add <file>");
+        println(cerr, "Usage: add <file>");
         return;
       }
       std::filesystem::path f = a[0];
@@ -2177,55 +2187,55 @@ int main(int argc, char** argv)
         run_track_info_shell(f, trackdb_path);
       }
       if (!g_db.find(f)) {
-        std::println(std::cerr, "Track still not in DB. Aborting.");
+        println(cerr, "Track still not in DB. Aborting.");
         return;
       }
       g_mix_tracks.push_back(f);
       try {
         rebuild_mix_into_player(std::nullopt);
-        std::cout << "Added. Mix size: " << g_mix_tracks.size()
+        cout << "Added. Mix size: " << g_mix_tracks.size()
                   << ", BPM: " << g_mix_bpm
                   << ", BPB: " << g_mix_bpb << "\n";
       } catch (const std::exception& e) {
-        std::println(std::cerr, "Failed to build mix: {}", e.what());
+        println(cerr, "Failed to build mix: {}", e.what());
       }
     });
 
-    repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](std::span<const std::string> a){
+    repl.register_command("bpm", "bpm [value] - show/set mix BPM (recomputes mix)", [&](std::span<const string> a){
       if (g_mix_tracks.empty()) {
-        std::println(std::cerr, "No tracks in mix.");
+        println(cerr, "No tracks in mix.");
         return;
       }
       if (a.empty()) {
-        std::println(std::cout, "Mix BPM: {:.2f}", g_mix_bpm);
+        println(cout, "Mix BPM: {:.2f}", g_mix_bpm);
         return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
         if (*v <= 0.0) {
-          std::println(std::cerr, "Invalid BPM: must be > 0");
+          println(cerr, "Invalid BPM: must be > 0");
           return;
         }
         try {
           rebuild_mix_into_player(*v);
-          std::println(std::cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
+          println(cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
         } catch (const std::exception& e) {
-          std::println(std::cerr, "Failed to rebuild mix: {}", e.what());
+          println(cerr, "Failed to rebuild mix: {}", e.what());
         }
       } else {
-        std::println(std::cerr, "Invalid BPM: {}", v.error());
+        println(cerr, "Invalid BPM: {}", v.error());
       }
     });
 
-    repl.register_command("play", "Start playback (mix)", [&](std::span<const std::string>){
+    repl.register_command("play", "Start playback (mix)", [&](std::span<const string>){
       if (!g_player.track) {
         if (g_mix_tracks.empty()) {
-          std::println(std::cerr, "No tracks in mix.");
+          println(cerr, "No tracks in mix.");
           return;
         }
         try {
           rebuild_mix_into_player(std::nullopt);
         } catch (const std::exception& e) {
-          std::println(std::cerr, "Build mix failed: {}", e.what());
+          println(cerr, "Build mix failed: {}", e.what());
           return;
         }
       }
@@ -2239,7 +2249,7 @@ int main(int argc, char** argv)
 
     repl.register_command("seek", "seek <bar> - jump to mix bar (1-based)", [&](std::span<const std::string> a){
       if (a.size() != 1 || !g_player.track) {
-        std::println(std::cerr, "Usage: seek <bar>");
+        println(cerr, "Usage: seek <bar>");
         return;
       }
       if (auto bar1 = parse_number<int>(a[0]); bar1) {
@@ -2261,18 +2271,18 @@ int main(int argc, char** argv)
           g_player.seekPending.store(true, std::memory_order_release);
         }
       } else {
-        std::println(std::cerr, "Invalid bar number: {}", bar1.error());
+        println(cerr, "Invalid bar number: {}", bar1.error());
       }
     });
 
     repl.register_command("cues", "List all cue points in current mix", [&](std::span<const std::string>){
       if (g_mix_cues.empty()) {
-        std::println(std::cout, "(no cues)");
+        println(cout, "(no cues)");
         return;
       }
       for (const auto& c : g_mix_cues) {
         auto name = c.track.filename().generic_string();
-        std::println(std::cout,
+        println(cout,
                      "mix bar {}  |  track: {}  |  track bar {}",
                      c.bar, name, c.local_bar);
       }
@@ -2289,7 +2299,7 @@ int main(int argc, char** argv)
       }
 
       if (counts.empty()) {
-        std::println(std::cout, "(no tags)");
+        println(cout, "(no tags)");
         return;
       }
 
@@ -2307,11 +2317,11 @@ int main(int argc, char** argv)
 
       bool first = true;
       for (auto const& [tag, cnt] : v) {
-        if (!first) std::cout << ", ";
-        std::cout << tag << " (" << cnt << ")";
+        if (!first) cout << ", ";
+        cout << tag << " (" << cnt << ")";
         first = false;
       }
-      std::cout << "\n";
+      cout << "\n";
     });
 
     repl.register_command("list",
@@ -2319,7 +2329,7 @@ int main(int argc, char** argv)
       "(e.g. \">=140bpm & <150bpm | techno\")",
       [&](std::span<const std::string> args){
         if (g_db.items.empty()) {
-          std::println(std::cerr, "Track DB is empty.");
+          println(cerr, "Track DB is empty.");
           return;
         }
 
@@ -2334,7 +2344,7 @@ int main(int argc, char** argv)
           try {
             matcher = Matcher::parse(expr);
           } catch (const std::exception& e) {
-            std::println(std::cerr, "Invalid tag expression: {}", e.what());
+            println(cerr, "Invalid tag expression: {}", e.what());
             return;
           }
         }
@@ -2343,29 +2353,29 @@ int main(int argc, char** argv)
         for (const auto& [path, ti] : g_db.items) {
           if (!ti.cue_bars.empty() && matcher(ti)) {
             ++count;
-            std::cout << std::setw(3) << count << ". "
+            cout << std::setw(3) << count << ". "
                       << path.generic_string()
                       << "  |  BPM: " << std::fixed << std::setprecision(2) << ti.bpm
                       << "  |  Tags: ";
             if (ti.tags.empty()) {
-              std::cout << "(none)";
+              cout << "(none)";
             } else {
               bool first = true;
               for (const auto& tag : ti.tags) {
-                if (!first) std::cout << ", ";
-                std::cout << tag;
+                if (!first) cout << ", ";
+                cout << tag;
                 first = false;
               }
             }
-            std::cout << "\n";
+            cout << "\n";
           }
         }
 
         if (count == 0) {
           if (args.empty()) {
-            std::println(std::cout, "(no tracks with cues in DB)");
+            println(cout, "(no tracks with cues in DB)");
           } else {
-            std::println(std::cout, "(no tracks matching expression)");
+            println(cout, "(no tracks matching expression)");
           }
         }
       });
@@ -2377,7 +2387,7 @@ int main(int argc, char** argv)
       [&](std::span<const std::string> args)
     {
       if (g_db.items.empty()) {
-        std::println(std::cerr, "Track DB is empty.");
+        println(cerr, "Track DB is empty.");
         return;
       }
 
@@ -2396,9 +2406,9 @@ int main(int argc, char** argv)
         }
         if (group.empty()) {
           if (desc.empty()) {
-            std::println(std::cerr, "No tracks with cues in DB.");
+            println(cerr, "No tracks with cues in DB.");
           } else {
-            std::println(std::cerr,
+            println(cerr,
                          "No tracks with cues matching expression '{}'.", desc);
           }
           return false;
@@ -2418,7 +2428,7 @@ int main(int argc, char** argv)
           try {
             matcher = Matcher::parse(expr);
           } catch (const std::exception& e) {
-            std::println(std::cerr, "Invalid tag expression '{}': {}", expr, e.what());
+            println(cerr, "Invalid tag expression '{}': {}", expr, e.what());
             g_mix_tracks.clear();
             return;
           }
@@ -2429,28 +2439,27 @@ int main(int argc, char** argv)
         }
       }
 
-      std::println(std::cout, "Track order:");
+      println(cout, "Track order:");
       for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-        std::println(std::cout, "  {}. {}",
+        println(cout, "  {}. {}",
                      i + 1, g_mix_tracks[i].generic_string());
       }
       try {
         rebuild_mix_into_player(std::nullopt);
-        std::cout << "Random mix created with " << g_mix_tracks.size()
-                  << " tracks. BPM: " << g_mix_bpm
-                  << ", BPB: " << g_mix_bpb << "\n";
+        println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
+                g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
       } catch (const std::exception& e) {
-        std::println(std::cerr, "Failed to build random mix: {}", e.what());
+        println(cerr, "Failed to build random mix: {}", e.what());
       }
     });
 
     repl.register_command("export", "export <file.wav> - render mix to 24-bit WAV", [&](std::span<const std::string> a){
       if (a.size() != 1) {
-        std::println(std::cerr, "Usage: export <file.wav>");
+        println(cerr, "Usage: export <file.wav>");
         return;
       }
       if (g_mix_tracks.empty()) {
-        std::println(std::cerr, "No tracks in mix.");
+        println(cerr, "No tracks in mix.");
         return;
       }
 
@@ -2461,7 +2470,7 @@ int main(int argc, char** argv)
 
     // miniplayer destructor will stop/uninit automatically
   } catch (const std::exception& e) {
-    std::println(std::cerr, "Audio init failed: {}", e.what());
+    println(cerr, "Audio init failed: {}", e.what());
     return EXIT_FAILURE;
   }
 
