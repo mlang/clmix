@@ -1122,6 +1122,34 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 }
 
+// Compute cue frames (in samples) for a TrackInfo at a given sample rate.
+// If bpm_override is not provided, TrackInfo::bpm is used.
+[[nodiscard]] std::vector<double>
+cue_frames(TrackInfo const& info,
+           uint32_t sr,
+           std::optional<double> bpm_override = std::nullopt)
+{
+  std::vector<double> frames;
+  if (info.cue_bars.empty() || sr == 0) return frames;
+
+  const double bpm_used = bpm_override.value_or(info.bpm);
+  if (bpm_used <= 0.0) return frames;
+
+  const double fpb = static_cast<double>(sr) * 60.0 / bpm_used;
+  const double shift =
+    info.upbeat_beats * fpb + info.time_offset_sec * static_cast<double>(sr);
+
+  frames.reserve(info.cue_bars.size());
+  for (int bar : info.cue_bars) {
+    // bar is 1-based
+    const double f =
+      shift + static_cast<double>(bar - 1)
+            * static_cast<double>(info.beats_per_bar) * fpb;
+    frames.push_back(f);
+  }
+  return frames;
+}
+
 // Compute default mix BPM as mean of track BPMs for the given files.
 [[nodiscard]] double compute_default_mix_bpm(
   const vector<path>& files
@@ -1209,14 +1237,14 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
         [&](interleaved<float> audio) -> expected<Item, string> {
           size_t frames = audio.frames();
 
-          int firstBar = info.cue_bars.front();
-          int lastBar  = info.cue_bars.back();
-          const double shiftOut =
-            info.upbeat_beats * fpb + info.time_offset_sec * out_rate;
-          double first_cue =
-            shiftOut + (firstBar - 1) * info.beats_per_bar * fpb;
-          double last_cue  =
-            shiftOut + (lastBar  - 1) * info.beats_per_bar * fpb;
+          auto cueFs = cue_frames(info, out_rate, bpm);
+          double first_cue = 0.0;
+          double last_cue  = 0.0;
+
+          if (!cueFs.empty()) {
+            first_cue = cueFs.front();
+            last_cue  = cueFs.back();
+          }
 
           // Clamp
           if (frames == 0) {
@@ -1309,12 +1337,10 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
   for (auto& it : items) {
-    for (int bar : it.info.cue_bars) {
-      double shiftOut = it.info.upbeat_beats * fpb
-                        + it.info.time_offset_sec * (double)out_rate;
-      double local = shiftOut
-                     + (double)(bar - 1) * (double)it.info.beats_per_bar * fpb;
-      double mixFrame = it.offset + local;
+    auto cueFs = cue_frames(it.info, out_rate, bpm);
+    for (std::size_t idx = 0; idx < cueFs.size(); ++idx) {
+      int bar = it.info.cue_bars[idx];
+      double mixFrame = it.offset + cueFs[idx];
 
       // Compute global bar index from mixFrame using integer math on beats.
       double beatsFromZero = mixFrame / fpb;
