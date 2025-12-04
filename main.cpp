@@ -1424,7 +1424,7 @@ compute_bpm_offset_correction(const track_info& ti,
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
 // 'bpm' is the mix BPM to use (no defaulting inside).
-[[nodiscard]] shared_ptr<interleaved<float>> build_mix_track(
+[[nodiscard]] interleaved<float> build_mix_track(
   const vector<path>& files,
   double bpm,
   int src_type = SRC_LINEAR
@@ -1545,10 +1545,9 @@ compute_bpm_offset_correction(const track_info& ti,
     total_frames = std::max(total_frames, offsetFrames + it.audio.frames());
   }
 
-  auto out = std::make_shared<interleaved<float>>(
+  auto out = interleaved<float>(
     out_rate, static_cast<size_t>(outCh), total_frames
   );
-  std::fill_n(out->data(), out->samples(), 0.0f);
 
   // Mix down to out channels
   const auto outChS = static_cast<size_t>(outCh);
@@ -1568,7 +1567,7 @@ compute_bpm_offset_correction(const track_info& ti,
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         const size_t sC = ch % inChS;
-        (*out)[outF, ch] += a * it.audio[f, sC];
+        out[outF, ch] += a * it.audio[f, sC];
       }
     }
 
@@ -1578,7 +1577,7 @@ compute_bpm_offset_correction(const track_info& ti,
   }
 
   // Final offline two-pass limiter for transparent ceiling control
-  apply_two_pass_limiter_db(*out, -1.0f, 200.0f, 40.0f);
+  apply_two_pass_limiter_db(out, -1.0f, 200.0f, 40.0f);
 
   // Accumulated cue frames and global bar numbers in mix timeline
   g_mix_cues.clear();
@@ -1627,7 +1626,7 @@ compute_bpm_offset_correction(const track_info& ti,
     g_mix_cues.swap(deduped);
   }
 
-  return out;
+  return std::move(out);
 }
 
 void play(player_state &player, multichannel<float> output, uint32_t device_rate)
@@ -2366,8 +2365,9 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
 
   g_player.playing.store(false);
-  auto audio = build_mix_track(g_mix_tracks, bpm);
-  g_player.track = audio;
+  g_player.track = std::make_shared<interleaved<float>>(
+    build_mix_track(g_mix_tracks, bpm)
+  );
   g_player.srcPos = 0.0;
   g_player.seekPending.store(false);
   g_player.seekTargetFrames.store(0.0);
@@ -2408,23 +2408,23 @@ bool export_current_mix(const path& out_path,
       g_mix_tracks, bpm, SRC_SINC_BEST_QUALITY
     );
 
-    if (!in_range<sf_count_t>(audio->frames())) {
+    if (!in_range<sf_count_t>(audio.frames())) {
       println(cerr, "Export failed: frame count too large for libsndfile.");
       return false;
     }
-    const auto frames = static_cast<sf_count_t>(audio->frames());
+    const auto frames = static_cast<sf_count_t>(audio.frames());
 
     SndfileHandle sf(out_path.string(),
                      SFM_WRITE,
                      SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                     static_cast<int>(audio->channels()),
-                     static_cast<int>(audio->sample_rate));
+                     static_cast<int>(audio.channels()),
+                     static_cast<int>(audio.sample_rate));
     if (sf.error() != SF_ERR_NO_ERROR) {
       println(cerr, "{}: {}", out_path.generic_string(), sf.strError());
       return false;
     }
 
-    const sf_count_t written = sf.writef(audio->data(), frames);
+    const sf_count_t written = sf.writef(audio.data(), frames);
     if (written != frames) {
       println(cerr, "Short write: wrote {} of {} frames",
               written, frames);
@@ -2432,7 +2432,7 @@ bool export_current_mix(const path& out_path,
     }
 
     println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
-                 frames, audio->sample_rate, audio->channels(),
+                 frames, audio.sample_rate, audio.channels(),
                  out_path.generic_string()
     );
 
