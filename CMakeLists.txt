@@ -16,6 +16,8 @@ if (NOT HAVE_MINIAUDIO_H)
 endif()
 
 find_package(TBB REQUIRED CONFIG)
+find_package(Boost REQUIRED CONFIG) # header-only math/statistics
+
 add_executable(clmix main.cpp)
 target_compile_features(clmix PRIVATE cxx_std_23)
 set_property(TARGET clmix PROPERTY CXX_STANDARD_REQUIRED ON)
@@ -31,5 +33,6 @@ target_link_libraries(clmix
           PkgConfig::SampleRate
           PkgConfig::SndFile
           TBB::tbb
+          Boost::boost
 )
 install(TARGETS clmix RUNTIME DESTINATION bin)

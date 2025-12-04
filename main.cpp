@@ -58,6 +58,7 @@ extern "C" {
 
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
+#include <boost/math/statistics/linear_regression.hpp>
 
 namespace {
 
@@ -65,6 +66,7 @@ namespace {
 template<typename T>
 using multichannel = Kokkos::mdspan<T, Kokkos::dextents<size_t, 2>>;
 
+using boost::math::statistics::simple_ordinary_least_squares_with_R_squared;
 using nlohmann::json;
 using std::cerr, std::cout;
 using std::expected, std::unexpected;
@@ -1312,10 +1314,10 @@ match_beats_to_onsets(const track_info& ti,
 }
 
 struct GridFitResult {
-  double A = 0.0;          // intercept in seconds
-  double B = 0.0;          // seconds per beat
-  double stddev_sec = 0.0;
-  size_t n = 0;
+  double offset_sec = 0.0;  // time of beat 0 (seconds)
+  double beat_sec   = 0.0;  // seconds per beat
+  size_t n          = 0;
+  double R2         = 0.0;  // coefficient of determination
 };
 
 [[nodiscard]] GridFitResult
@@ -1325,41 +1327,16 @@ fit_grid(const BeatGridMatch& m)
   const size_t n = m.beat_indices.size();
   if (n < 2 || m.onset_times.size() != n) return r;
 
-  r.n = n;
+  auto [A, B, R2] = simple_ordinary_least_squares_with_R_squared(
+    m.beat_indices, m.onset_times
+  );
 
-  double sum_k = 0.0, sum_t = 0.0;
-  for (size_t i = 0; i < n; ++i) {
-    sum_k += m.beat_indices[i];
-    sum_t += m.onset_times[i];
-  }
-  const double mean_k = sum_k / (double)n;
-  const double mean_t = sum_t / (double)n;
+  if (!(B > 0.0)) return r;
 
-  double num = 0.0; // covariance numerator
-  double den = 0.0; // variance of k
-  for (size_t i = 0; i < n; ++i) {
-    const double dk = m.beat_indices[i] - mean_k;
-    const double dt = m.onset_times[i] - mean_t;
-    num += dk * dt;
-    den += dk * dk;
-  }
-  if (den == 0.0) return r;
-
-  const double B = num / den;
-  const double A = mean_t - B * mean_k;
-
-  r.A = A;
-  r.B = B;
-
-  double var = 0.0;
-  for (size_t i = 0; i < n; ++i) {
-    const double pred = A + B * m.beat_indices[i];
-    const double err  = m.onset_times[i] - pred;
-    var += err * err;
-  }
-  var /= (double)n;
-  r.stddev_sec = std::sqrt(var);
-
+  r.offset_sec = A;
+  r.beat_sec   = B;
+  r.n          = n;
+  r.R2         = R2;
   return r;
 }
 
@@ -1373,12 +1350,12 @@ compute_bpm_offset_correction(const track_info& ti,
                               const GridFitResult& fit)
 {
   BPMOffsetCorrection c{};
-  if (fit.n < 2 || fit.B <= 0.0) return c;
+  if (fit.n < 2 || fit.beat_sec <= 0.0) return c;
 
-  const double secondsPerBeat = fit.B;
+  const double secondsPerBeat = fit.beat_sec;
   const double bpm = 60.0 / secondsPerBeat;
 
-  const double A = fit.A; // time (sec) of beat 0 (start of first cue bar)
+  const double A = fit.offset_sec; // time (sec) of beat 0 (start of first cue bar)
 
   const int first_bar = ti.cue_bars.front();
   const double beats_before_first_bar =
@@ -1619,7 +1596,12 @@ compute_bpm_offset_correction(const track_info& ti,
         ++j;
       }
       // [i, j) is a run of same bar; keep the last one (j-1)
-      deduped.push_back(g_mix_cues[j - 1]);
+      deduped.push_back(MixCue{
+        g_mix_cues[j - 1].frame,
+        g_mix_cues[j - 1].bar,
+        g_mix_cues[j - 1].track,
+        g_mix_cues[j - 1].local_bar
+      });
       i = j;
     }
 
@@ -2123,7 +2105,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
       }
 
       double window_ms = 50.0;   // +/- 50 ms search window
-      double max_std_ms = 20.0;  // max allowed residual stddev
+      double max_std_ms = 20.0;  // kept for CLI compatibility, but unused now
 
       if (a.size() >= 1) {
         if (auto v = parse_number<double>(a[0]); v && *v > 0.0) {
@@ -2141,6 +2123,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
           return;
         }
       }
+      (void)max_std_ms; // R^2-based check only now
 
       try {
         auto onsets = detect_onsets(*tr);
@@ -2158,23 +2141,23 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
         }
 
         auto fit = fit_grid(matches);
-        if (fit.n < 4 || fit.B <= 0.0) {
+        if (fit.n < 4 || fit.beat_sec <= 0.0) {
           println(cerr, "Grid fit failed.");
           return;
         }
 
-        const double std_ms = fit.stddev_sec * 1000.0;
-
         println(cout,
-          "Fit over {} beats: secondsPerBeat = {:.6f}, stddev = {:.6f} s ({:.3f} ms)",
-          fit.n, fit.B, fit.stddev_sec, std_ms
+          "Fit over {} beats: secondsPerBeat = {:.6f}, R^2 = {:.6f}",
+          fit.n, fit.beat_sec, fit.R2
         );
 
-        if (std_ms > max_std_ms) {
+        // R^2 sanity check: require a very straight line
+        constexpr double min_R2 = 0.995;
+        if (fit.R2 < min_R2) {
           println(cerr,
-            "Residual stddev {:.3f} ms exceeds max_std_ms {:.3f} ms; "
+            "R^2 = {:.6f} is below the minimum {:.3f}; "
             "BPM or cues may be wrong. Not applying correction.",
-            std_ms, max_std_ms
+            fit.R2, min_R2
           );
           return;
         }
@@ -2195,8 +2178,6 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
             "which exceeds the allowed ±1%. Not applying BPM change.",
             corr.new_bpm, old_bpm, rel * 100.0
           );
-          // Still allow offset-only correction using current BPM?
-          // For now, keep BPM and offset unchanged to avoid inconsistent grid.
           return;
         }
 
