@@ -61,7 +61,7 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 126.0,
+      "bpm": 126.00058046303208,
       "cue_bars": [
         33,
         161
@@ -70,7 +70,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.27,
+      "time_offset_sec": 0.25796305560609767,
       "upbeat_beats": 0.0
     },
     {
@@ -154,7 +154,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.02,
+      "time_offset_sec": 0.011711077786635717,
       "upbeat_beats": 0.0
     },
     {
@@ -215,7 +215,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.16,
+      "time_offset_sec": 0.15424901528174137,
       "upbeat_beats": 0.0
     },
     {
@@ -569,7 +569,7 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 170.0,
+      "bpm": 169.99769448994653,
       "cue_bars": [
         65,
         193
@@ -578,7 +578,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.03,
+      "time_offset_sec": 0.020754037996682247,
       "upbeat_beats": 0.0
     },
     {
@@ -830,7 +830,7 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 140.0,
+      "bpm": 140.00713954950226,
       "cue_bars": [
         40,
         232
@@ -841,7 +841,7 @@
         "ott",
         "psy"
       ],
-      "time_offset_sec": 0.3085,
+      "time_offset_sec": 0.3026642572274748,
       "upbeat_beats": 0.0
     },
     {
