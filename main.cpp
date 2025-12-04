@@ -63,7 +63,7 @@ namespace {
 
 // We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
 template<typename T>
-using multichannel = Kokkos::mdspan<T, Kokkos::dextents<std::size_t, 2>>;
+using multichannel = Kokkos::mdspan<T, Kokkos::dextents<size_t, 2>>;
 
 using nlohmann::json;
 using std::cerr, std::cout;
@@ -121,15 +121,15 @@ requires (is_integral_v<T> || is_floating_point_v<T>)
 template<typename T>
 class interleaved {
   vector<T> storage;
-  std::size_t frames_   = 0;
-  std::size_t channels_ = 0;
+  size_t frames_   = 0;
+  size_t channels_ = 0;
 
 public:
   uint32_t sample_rate = 0;
 
   interleaved() = default;
 
-  interleaved(uint32_t sr, std::size_t ch, std::size_t frames)
+  interleaved(uint32_t sr, size_t ch, size_t frames)
   : storage(frames * ch), frames_(frames), channels_(ch), sample_rate(sr)
   { assert(ch > 0); }
 
@@ -140,9 +140,9 @@ public:
   interleaved(interleaved&&) noexcept = default;
   interleaved& operator=(interleaved&&) noexcept = default;
 
-  [[nodiscard]] std::size_t frames()   const noexcept { return frames_; }
-  [[nodiscard]] std::size_t channels() const noexcept { return channels_; }
-  [[nodiscard]] std::size_t samples()  const noexcept { return storage.size(); }
+  [[nodiscard]] size_t frames()   const noexcept { return frames_; }
+  [[nodiscard]] size_t channels() const noexcept { return channels_; }
+  [[nodiscard]] size_t samples()  const noexcept { return storage.size(); }
   [[nodiscard]] T*       data()       noexcept { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
 
@@ -150,14 +150,14 @@ public:
   class frame_view_base {
   protected:
     Elem* row_;
-    std::size_t ch_;
+    size_t ch_;
 
-    frame_view_base(Elem* row, std::size_t ch) : row_(row), ch_(ch) {}
+    frame_view_base(Elem* row, size_t ch) : row_(row), ch_(ch) {}
 
   public:
     [[nodiscard]] T peak() const noexcept {
       T p = T(0);
-      for (std::size_t c = 0; c < ch_; ++c) {
+      for (size_t c = 0; c < ch_; ++c) {
         T v = row_[c];
         if constexpr (is_floating_point_v<T>) {
           if (!std::isfinite(v)) continue;
@@ -171,13 +171,13 @@ public:
 
   class frame_view : public frame_view_base<T> {
   public:
-    frame_view(T* row, std::size_t ch) : frame_view_base<T>(row, ch) {}
+    frame_view(T* row, size_t ch) : frame_view_base<T>(row, ch) {}
 
     template<typename U> requires is_arithmetic_v<U>
     frame_view& operator*=(U gain) noexcept
     {
       const T g = static_cast<T>(gain);
-      for (std::size_t c = 0; c < this->ch_; ++c)
+      for (size_t c = 0; c < this->ch_; ++c)
         this->row_[c] *= g;
       return *this;
     }
@@ -186,28 +186,28 @@ public:
   class const_frame_view : public frame_view_base<const T>
   {
   public:
-    const_frame_view(const T* row, std::size_t ch)
+    const_frame_view(const T* row, size_t ch)
     : frame_view_base<const T>(row, ch) {}
   };
 
   // 2D element access via multi-arg operator[]
-  T& operator[](std::size_t frame, std::size_t ch) noexcept {
+  T& operator[](size_t frame, size_t ch) noexcept {
     assert(frame < frames_ && ch < channels_);
     return storage[frame * channels_ + ch];
   }
-  const T& operator[](std::size_t frame, std::size_t ch) const noexcept
+  const T& operator[](size_t frame, size_t ch) const noexcept
   {
     assert(frame < frames_ && ch < channels_);
     return storage[frame * channels_ + ch];
   }
 
   // 1D frame view
-  frame_view operator[](std::size_t frame) noexcept
+  frame_view operator[](size_t frame) noexcept
   {
     assert(frame < frames_);
     return frame_view(storage.data() + frame * channels_, channels_);
   }
-  const_frame_view operator[](std::size_t frame) const noexcept
+  const_frame_view operator[](size_t frame) const noexcept
   {
     assert(frame < frames_);
     return const_frame_view(storage.data() + frame * channels_, channels_);
@@ -226,7 +226,7 @@ public:
     return p;
   }
 
-  void resize(std::size_t new_frames)
+  void resize(size_t new_frames)
   {
     storage.resize(new_frames * channels_);
     frames_ = new_frames;
@@ -273,7 +273,7 @@ measure_lufs(const interleaved<float> &audio)
 {
   const unsigned int  channels    = audio.channels();
   const unsigned long sample_rate = audio.sample_rate;
-  const std::size_t   frames      = audio.frames();
+  const size_t   frames      = audio.frames();
 
   if (channels == 0 || sample_rate == 0 || frames == 0) {
     return unexpected("measure_lufs: empty or invalid track");
@@ -305,8 +305,8 @@ change_tempo(
   uint32_t to_rate,
   int src_type
 ) {
-  const std::size_t channels     = in.channels();
-  const std::size_t in_frames_sz = in.frames();
+  const size_t channels     = in.channels();
+  const size_t in_frames_sz = in.frames();
 
   // Our invariants: we control all call sites.
   assert(channels > 0);
@@ -337,7 +337,7 @@ change_tempo(
 
   // Estimate output frames (add 1 for safety).
   const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
-  const auto   est_out_frames_sz = static_cast<std::size_t>(est_out_frames_d);
+  const auto   est_out_frames_sz = static_cast<size_t>(est_out_frames_d);
 
   if (!in_range<long>(est_out_frames_sz))
     return unexpected(
@@ -353,7 +353,7 @@ change_tempo(
     );
   const auto ch = static_cast<int>(channels);
 
-  interleaved<float> out(to_rate, channels, static_cast<std::size_t>(out_frames_est));
+  interleaved<float> out(to_rate, channels, static_cast<size_t>(out_frames_est));
 
   SRC_DATA data{};
   data.data_in       = in.data();
@@ -366,7 +366,7 @@ change_tempo(
   if (const int err = src_simple(&data, src_type, ch); err != 0)
     return unexpected(src_strerror(err));
 
-  out.resize(static_cast<std::size_t>(data.output_frames_gen));
+  out.resize(static_cast<size_t>(data.output_frames_gen));
 
   return out;
 }
@@ -992,8 +992,8 @@ private:
 
     multichannel<float> out(
       static_cast<float*>(pOutput),
-      static_cast<std::size_t>(frameCount),
-      static_cast<std::size_t>(pDevice->playback.channels)
+      static_cast<size_t>(frameCount),
+      static_cast<size_t>(pDevice->playback.channels)
     );
     self->callback_(out, pDevice->sampleRate);
   }
@@ -1018,8 +1018,8 @@ load_track(const path& file)
 
   interleaved<float> track(
     static_cast<uint32_t>(sr),
-    static_cast<std::size_t>(sf.channels()),
-    static_cast<std::size_t>(frames)
+    static_cast<size_t>(sf.channels()),
+    static_cast<size_t>(frames)
   );
 
   const sf_count_t read_frames = sf.readf(track.data(), frames);
@@ -1029,7 +1029,7 @@ load_track(const path& file)
     );
   }
   if (read_frames != frames) {
-    track.resize(static_cast<std::size_t>(read_frames));
+    track.resize(static_cast<size_t>(read_frames));
   }
 
   return track;
@@ -1059,16 +1059,16 @@ load_track(const path& file)
     throw std::runtime_error("aubio: failed to allocate buffers");
   }
 
-  const std::size_t channels = track.channels();
-  const std::size_t total_frames = track.frames();
+  const size_t channels = track.channels();
+  const size_t total_frames = track.frames();
 
-  for (std::size_t frame = 0; frame < total_frames; frame += hop_s) {
+  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
     for (uint_t j = 0; j < hop_s; ++j) {
-      const std::size_t fr = frame + j;
+      const size_t fr = frame + j;
       float v = 0.f;
       if (fr < total_frames) {
         float sum = 0.f;
-        for (std::size_t c = 0; c < channels; ++c) {
+        for (size_t c = 0; c < channels; ++c) {
           sum += track[fr, c];
         }
         v = sum / static_cast<float>(channels);
@@ -1293,7 +1293,7 @@ cue_frames(TrackInfo const& info,
   // Determine total frames
   size_t total_frames = 0;
   for (auto& it : items) {
-    const auto offsetFrames = static_cast<std::size_t>(std::ceil(it.offset));
+    const auto offsetFrames = static_cast<size_t>(std::ceil(it.offset));
     total_frames = std::max(total_frames, offsetFrames + it.audio.frames());
   }
 
@@ -1336,7 +1336,7 @@ cue_frames(TrackInfo const& info,
   g_mix_cues.clear();
   for (auto& it : items) {
     auto cueFs = cue_frames(it.info, out_rate, bpm);
-    for (std::size_t idx = 0; idx < cueFs.size(); ++idx) {
+    for (size_t idx = 0; idx < cueFs.size(); ++idx) {
       int bar = it.info.cue_bars[idx];
       double mixFrame = it.offset + cueFs[idx];
 
@@ -1365,9 +1365,9 @@ cue_frames(TrackInfo const& info,
     vector<MixCue> deduped;
     deduped.reserve(g_mix_cues.size());
 
-    std::size_t i = 0;
+    size_t i = 0;
     while (i < g_mix_cues.size()) {
-      std::size_t j = i + 1;
+      size_t j = i + 1;
       while (j < g_mix_cues.size() && g_mix_cues[j].bar == g_mix_cues[i].bar) {
         ++j;
       }
@@ -2395,7 +2395,7 @@ int main(int argc, char** argv)
       "List all tags present in track DB",
       [&](command_args) {
 	// Count how many tracks have each tag
-	std::map<std::string, std::size_t> counts;
+	std::map<std::string, size_t> counts;
 	for (const auto& [path, ti] : g_db.items) {
 	  (void)path;
 	  for (const auto& tag : ti.tags) {
@@ -2409,7 +2409,7 @@ int main(int argc, char** argv)
 	}
 
 	// Move to vector and sort by count (descending), then by tag name
-	vector<std::pair<std::string, std::size_t>> v;
+	vector<std::pair<std::string, size_t>> v;
 	v.reserve(counts.size());
 	for (auto& [tag, cnt] : counts) {
 	  v.emplace_back(tag, cnt);
@@ -2455,7 +2455,7 @@ int main(int argc, char** argv)
           }
         }
 
-        std::size_t count = 0;
+        size_t count = 0;
         for (const auto& [path, ti] : g_db.items) {
           if (!ti.cue_bars.empty() && matcher(ti)) {
             ++count;
