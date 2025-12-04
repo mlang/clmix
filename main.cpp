@@ -493,7 +493,7 @@ struct Metronome {
 };
 
 // Track metadata persisted in the DB
-struct TrackInfo {
+struct track_info {
   path filename;
   unsigned beats_per_bar = 4;
   double bpm = 120.0; // required > 0
@@ -503,9 +503,35 @@ struct TrackInfo {
   std::set<string> tags; // unique tags
 };
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(TrackInfo,
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
   filename, beats_per_bar, bpm, upbeat_beats, time_offset_sec, cue_bars, tags
 )
+
+// Compute cue frames (in samples) for a track_info at a given sample rate.
+// If bpm_override is not provided, track_info::bpm is used.
+[[nodiscard]] std::vector<double>
+cue_frames(track_info const& info,
+  uint32_t sr, std::optional<double> bpm_override = std::nullopt
+) {
+  assert(sr > 0);
+  std::vector<double> frames;
+
+  if (info.cue_bars.empty()) return frames;
+
+  const auto bpm = bpm_override.value_or(info.bpm);
+  assert(bpm > 0.0);
+
+  const auto fpb = 60.0 / bpm * sr;
+  const auto shift = info.upbeat_beats * fpb + info.time_offset_sec * sr;
+
+  frames.reserve(info.cue_bars.size());
+  for (int bar: info.cue_bars) {
+    // bar is 1-based
+    frames.push_back(shift + (bar - 1) * info.beats_per_bar * fpb);
+  }
+
+  return frames;
+}
 
 class Matcher {
   struct Node;
@@ -534,7 +560,7 @@ class Matcher {
   Ptr root_;
   explicit Matcher(Ptr p) : root_(std::move(p)) {}
 
-  static bool eval_node(const Node& n, const TrackInfo& ti) {
+  static bool eval_node(const Node& n, const track_info& ti) {
     return std::visit([&](const auto& node) -> bool {
       using T = std::decay_t<decltype(node)>;
       if constexpr (is_same_v<T, Node::Symbol>) {
@@ -579,7 +605,7 @@ public:
   { return Matcher(std::make_shared<Node>(Node::Or{lhs.root_, rhs.root_})); }
 
   // Evaluate against a set of tags
-  bool operator()(const TrackInfo& ti) const {
+  bool operator()(const track_info& ti) const {
     if (!root_) return true; // empty expression is vacuously true
     return eval_node(*root_, ti);
   }
@@ -795,18 +821,18 @@ public:
 };
 
 struct track_database {
-  std::map<path, TrackInfo> items;
+  std::map<path, track_info> items;
 
   static path norm(const path& p) {
     return p.lexically_normal();
   }
 
-  [[nodiscard]] TrackInfo* find(const path& file) {
+  [[nodiscard]] track_info* find(const path& file) {
     auto it = items.find(norm(file));
     return (it == items.end()) ? nullptr : &it->second;
   }
 
-  void upsert(const TrackInfo& info) {
+  void upsert(const track_info& info) {
     items[norm(info.filename)] = info;
   }
 
@@ -851,9 +877,9 @@ struct track_database {
 
     try {
       for (const auto& jti : j["tracks"])
-        upsert(jti.get<TrackInfo>());
+        upsert(jti.get<track_info>());
     } catch (const std::exception& e) {
-      println(cerr, "Error decoding TrackInfo from JSON '{}': {}",
+      println(cerr, "Error decoding track_info from JSON '{}': {}",
               dbfile.generic_string(), e.what());
       items.clear();
       return false;
@@ -1122,32 +1148,6 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 }
 
-// Compute cue frames (in samples) for a TrackInfo at a given sample rate.
-// If bpm_override is not provided, TrackInfo::bpm is used.
-[[nodiscard]] std::vector<double>
-cue_frames(TrackInfo const& info,
-  uint32_t sr, std::optional<double> bpm_override = std::nullopt
-) {
-  assert(sr > 0);
-  std::vector<double> frames;
-
-  if (info.cue_bars.empty()) return frames;
-
-  const auto bpm = bpm_override.value_or(info.bpm);
-  assert(bpm > 0.0);
-
-  const auto fpb = 60.0 / bpm * sr;
-  const auto shift = info.upbeat_beats * fpb + info.time_offset_sec * sr;
-
-  frames.reserve(info.cue_bars.size());
-  for (int bar: info.cue_bars) {
-    // bar is 1-based
-    frames.push_back(shift + (bar - 1) * info.beats_per_bar * fpb);
-  }
-
-  return frames;
-}
-
 // Compute default mix BPM as mean of track BPMs for the given files.
 [[nodiscard]] double compute_default_mix_bpm(
   const vector<path>& files
@@ -1156,7 +1156,7 @@ cue_frames(TrackInfo const& info,
     throw std::runtime_error("No tracks to compute default BPM.");
   }
 
-  vector<TrackInfo> tracks;
+  vector<track_info> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
@@ -1168,7 +1168,7 @@ cue_frames(TrackInfo const& info,
     tracks.push_back(*info);
   }
 
-  const auto bpms = tracks | std::views::transform(&TrackInfo::bpm);
+  const auto bpms = tracks | std::views::transform(&track_info::bpm);
   return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
 }
 
@@ -1183,8 +1183,8 @@ cue_frames(TrackInfo const& info,
 ) {
   if (files.empty()) return {};
 
-  // Collect TrackInfo and ensure cues exist
-  vector<TrackInfo> tracks;
+  // Collect track_info and ensure cues exist
+  vector<track_info> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
@@ -1213,7 +1213,7 @@ cue_frames(TrackInfo const& info,
   const double fpb = (double)out_rate * 60.0 / bpm;
 
   struct Item {
-    TrackInfo info;
+    track_info info;
     interleaved<float> audio;
     double first_cue;
     double last_cue;
@@ -1224,7 +1224,7 @@ cue_frames(TrackInfo const& info,
 
   // Parallel per-track processing
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
-    [&](TrackInfo const& info) -> expected<Item, string> {
+    [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
           // Pre-resample peak headroom
@@ -1607,7 +1607,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
 
   double guessedBpm = 0.0;
 
-  TrackInfo ti;
+  track_info ti;
   if (auto* existing = g_db.find(f)) {
     ti = *existing;
   } else {
@@ -2161,7 +2161,7 @@ int main(int argc, char** argv)
       vector<path> group;
       group.reserve(g_db.items.size());
       for (const auto& kv : g_db.items) {
-        const TrackInfo& ti = kv.second;
+        const track_info& ti = kv.second;
         if (!ti.cue_bars.empty() && matcher(ti)) {
           group.push_back(ti.filename);
         }
@@ -2504,7 +2504,7 @@ int main(int argc, char** argv)
 	  vector<path> group;
 	  group.reserve(g_db.items.size());
 	  for (const auto& kv : g_db.items) {
-	    const TrackInfo& ti = kv.second;
+	    const track_info& ti = kv.second;
 	    if (!ti.cue_bars.empty() && matcher(ti)) {
 	      group.push_back(ti.filename);
 	    }
