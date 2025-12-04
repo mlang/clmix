@@ -1148,6 +1148,253 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 }
 
+// Onset detection for beat-grid fitting
+struct OnsetList {
+  std::vector<double> times_sec; // onset positions in seconds
+};
+
+[[nodiscard]] OnsetList
+detect_onsets(const interleaved<float>& track)
+{
+  if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
+    throw std::invalid_argument("detect_onsets: invalid or empty track");
+  }
+
+  const uint_t win_s = 1024;
+  const uint_t hop_s = 512;
+  const auto samplerate = static_cast<uint_t>(track.sample_rate);
+
+  using onset_ptr = std::unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
+  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+
+  onset_ptr onset{ new_aubio_onset((char*)"default", win_s, hop_s, samplerate),
+                   &del_aubio_onset };
+  if (!onset) {
+    throw std::runtime_error("aubio: failed to create onset object");
+  }
+
+  fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
+  fvec_ptr outbuf{ new_fvec(1), &del_fvec };
+  if (!inbuf || !outbuf) {
+    throw std::runtime_error("aubio: failed to allocate onset buffers");
+  }
+
+  const size_t channels = track.channels();
+  const size_t total_frames = track.frames();
+
+  OnsetList result;
+
+  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
+    for (uint_t j = 0; j < hop_s; ++j) {
+      const size_t fr = frame + j;
+      float v = 0.f;
+      if (fr < total_frames) {
+        float sum = 0.f;
+        for (size_t c = 0; c < channels; ++c) {
+          sum += track[fr, c];
+        }
+        v = sum / static_cast<float>(channels);
+      }
+      inbuf->data[j] = v;
+    }
+
+    aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
+
+    // onset detected in this hop?
+    if (outbuf->data[0] != 0.0f) {
+      // aubio_onset_get_last_s returns seconds
+      const smpl_t t_sec = aubio_onset_get_last_s(onset.get());
+      if (t_sec >= 0.0f) {
+        const double t = static_cast<double>(t_sec);
+        const double track_len_sec =
+          static_cast<double>(total_frames) / static_cast<double>(samplerate);
+        if (t >= 0.0 && t <= track_len_sec) {
+          result.times_sec.push_back(t);
+        }
+      }
+    }
+  }
+
+  std::sort(result.times_sec.begin(), result.times_sec.end());
+  result.times_sec.erase(std::unique(result.times_sec.begin(), result.times_sec.end()),
+                         result.times_sec.end());
+  return result;
+}
+
+struct BeatGridMatch {
+  // For regression
+  std::vector<double> beat_indices; // k
+  std::vector<double> onset_times;  // t_k in seconds
+};
+
+[[nodiscard]] BeatGridMatch
+match_beats_to_onsets(const track_info& ti,
+                      const interleaved<float>& track,
+                      const OnsetList& onsets,
+                      double window_sec = 0.05) // +/- 50 ms
+{
+  BeatGridMatch out;
+  if (ti.cue_bars.size() < 2) return out; // need at least first & last cue bar
+
+  const uint32_t sr = track.sample_rate;
+  if (sr == 0 || track.frames() == 0 || onsets.times_sec.empty()) return out;
+
+  const double bpm = ti.bpm;
+  if (bpm <= 0.0) return out;
+
+  const int first_bar = ti.cue_bars.front();
+  const int last_bar  = ti.cue_bars.back();
+  if (first_bar >= last_bar) return out;
+
+  const double secondsPerBeat = 60.0 / bpm;
+  const double shiftSec =
+      ti.upbeat_beats * secondsPerBeat
+    + ti.time_offset_sec;
+
+  const double window = window_sec;
+
+  // Global beat index k: 0 at start of first cue bar
+  const double beats_before_first_bar =
+      ti.upbeat_beats
+    + (double)(first_bar - 1) * (double)ti.beats_per_bar;
+
+  const auto& onsetTimes = onsets.times_sec;
+
+  const double trackLenSec =
+      (double)track.frames() / (double)sr;
+
+  for (int bar = first_bar; bar < last_bar; ++bar) {
+    for (int b = 0; b < (int)ti.beats_per_bar; ++b) {
+      const double globalBeatIndex =
+          (double)b
+        + (double)(bar - first_bar) * (double)ti.beats_per_bar;
+
+      const double beatIndexFromZero =
+          beats_before_first_bar + globalBeatIndex;
+
+      const double gridTime =
+          shiftSec + beatIndexFromZero * secondsPerBeat;
+
+      if (gridTime < 0.0 || gridTime >= trackLenSec) {
+        continue;
+      }
+
+      const double lo = gridTime - window;
+      const double hi = gridTime + window;
+
+      auto it = std::lower_bound(
+        onsetTimes.begin(), onsetTimes.end(),
+        std::max(0.0, lo)
+      );
+
+      double bestTime = -1.0;
+      double bestAbs   = std::numeric_limits<double>::infinity();
+
+      for (; it != onsetTimes.end() && *it <= hi; ++it) {
+        double d = *it - gridTime;
+        double a = std::abs(d);
+        if (a < bestAbs) {
+          bestAbs = a;
+          bestTime = *it;
+        }
+      }
+
+      if (bestTime >= 0.0) {
+        out.beat_indices.push_back(globalBeatIndex);
+        out.onset_times.push_back(bestTime);
+      }
+    }
+  }
+
+  return out;
+}
+
+struct GridFitResult {
+  double A = 0.0;          // intercept in seconds
+  double B = 0.0;          // seconds per beat
+  double stddev_sec = 0.0;
+  size_t n = 0;
+};
+
+[[nodiscard]] GridFitResult
+fit_grid(const BeatGridMatch& m)
+{
+  GridFitResult r{};
+  const size_t n = m.beat_indices.size();
+  if (n < 2 || m.onset_times.size() != n) return r;
+
+  r.n = n;
+
+  double sum_k = 0.0, sum_t = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    sum_k += m.beat_indices[i];
+    sum_t += m.onset_times[i];
+  }
+  const double mean_k = sum_k / (double)n;
+  const double mean_t = sum_t / (double)n;
+
+  double num = 0.0; // covariance numerator
+  double den = 0.0; // variance of k
+  for (size_t i = 0; i < n; ++i) {
+    const double dk = m.beat_indices[i] - mean_k;
+    const double dt = m.onset_times[i] - mean_t;
+    num += dk * dt;
+    den += dk * dk;
+  }
+  if (den == 0.0) return r;
+
+  const double B = num / den;
+  const double A = mean_t - B * mean_k;
+
+  r.A = A;
+  r.B = B;
+
+  double var = 0.0;
+  for (size_t i = 0; i < n; ++i) {
+    const double pred = A + B * m.beat_indices[i];
+    const double err  = m.onset_times[i] - pred;
+    var += err * err;
+  }
+  var /= (double)n;
+  r.stddev_sec = std::sqrt(var);
+
+  return r;
+}
+
+struct BPMOffsetCorrection {
+  double new_bpm = 0.0;
+  double new_time_offset_sec = 0.0;
+};
+
+[[nodiscard]] BPMOffsetCorrection
+compute_bpm_offset_correction(const track_info& ti,
+                              const GridFitResult& fit,
+                              uint32_t /*sr*/)
+{
+  BPMOffsetCorrection c{};
+  if (fit.n < 2 || fit.B <= 0.0) return c;
+
+  const double secondsPerBeat = fit.B;
+  const double bpm = 60.0 / secondsPerBeat;
+
+  const double A = fit.A; // time (sec) of beat 0 (start of first cue bar)
+
+  const int first_bar = ti.cue_bars.front();
+  const double beats_before_first_bar =
+      ti.upbeat_beats
+    + (double)(first_bar - 1) * (double)ti.beats_per_bar;
+
+  const double shiftSec =
+      A - beats_before_first_bar * secondsPerBeat;
+
+  const double time_offset_sec =
+      shiftSec - ti.upbeat_beats * secondsPerBeat;
+
+  c.new_bpm = bpm;
+  c.new_time_offset_sec = time_offset_sec;
+  return c;
+}
+
 // Compute default mix BPM as mean of track BPMs for the given files.
 [[nodiscard]] double compute_default_mix_bpm(
   const vector<path>& files
@@ -1859,6 +2106,118 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
 	firstOut = false;
       }
       cout << "\n";
+    }
+  );
+
+  sub.register_command("autogrid",
+    "autogrid [window_ms] [max_std_ms] - refine BPM (±1%) and offset from "
+    "transients between first and last cue bar",
+    [&](command_args a) {
+      if (!g_player.track) {
+        println(cerr, "No track loaded.");
+        return;
+      }
+      if (ti.cue_bars.size() < 2) {
+        println(cerr, "Need at least two cue bars for autogrid.");
+        return;
+      }
+
+      double window_ms = 50.0;   // +/- 50 ms search window
+      double max_std_ms = 20.0;  // max allowed residual stddev
+
+      if (a.size() >= 1) {
+        if (auto v = parse_number<double>(a[0]); v && *v > 0.0) {
+          window_ms = *v;
+        } else {
+          println(cerr, "Invalid window_ms: {}", v ? "must be > 0" : v.error());
+          return;
+        }
+      }
+      if (a.size() >= 2) {
+        if (auto v = parse_number<double>(a[1]); v && *v >= 0.0) {
+          max_std_ms = *v;
+        } else {
+          println(cerr, "Invalid max_std_ms: {}", v ? "must be >= 0" : v.error());
+          return;
+        }
+      }
+
+      try {
+        auto onsets = detect_onsets(*tr);
+        if (onsets.times_sec.empty()) {
+          println(cerr, "No onsets detected.");
+          return;
+        }
+
+        auto matches = match_beats_to_onsets(
+          ti, *tr, onsets, window_ms * 1e-3
+        );
+        if (matches.beat_indices.size() < 4) {
+          println(cerr, "Too few matched beats for reliable fit.");
+          return;
+        }
+
+        auto fit = fit_grid(matches);
+        if (fit.n < 4 || fit.B <= 0.0) {
+          println(cerr, "Grid fit failed.");
+          return;
+        }
+
+        const double std_ms = fit.stddev_sec * 1000.0;
+
+        println(cout,
+          "Fit over {} beats: secondsPerBeat = {:.6f}, stddev = {:.6f} s ({:.3f} ms)",
+          fit.n, fit.B, fit.stddev_sec, std_ms
+        );
+
+        if (std_ms > max_std_ms) {
+          println(cerr,
+            "Residual stddev {:.3f} ms exceeds max_std_ms {:.3f} ms; "
+            "BPM or cues may be wrong. Not applying correction.",
+            std_ms, max_std_ms
+          );
+          return;
+        }
+
+        auto corr = compute_bpm_offset_correction(ti, fit, tr->sample_rate);
+        if (corr.new_bpm <= 0.0) {
+          println(cerr, "Computed invalid BPM.");
+          return;
+        }
+
+        // Enforce ±1% BPM adjustment
+        const double old_bpm = ti.bpm;
+        const double rel = std::abs(corr.new_bpm - old_bpm) / old_bpm;
+        const double max_rel = 0.01; // 1%
+        if (rel > max_rel) {
+          println(cerr,
+            "Computed BPM {:.4f} differs from current BPM {:.4f} by {:.2f}%, "
+            "which exceeds the allowed ±1%. Not applying BPM change.",
+            corr.new_bpm, old_bpm, rel * 100.0
+          );
+          // Still allow offset-only correction using current BPM?
+          // For now, keep BPM and offset unchanged to avoid inconsistent grid.
+          return;
+        }
+
+        println(cout,
+          "Old BPM: {:.4f}, new BPM: {:.4f}",
+          ti.bpm, corr.new_bpm
+        );
+        println(cout,
+          "Old time offset: {:.6f} s, new time offset: {:.6f} s",
+          ti.time_offset_sec, corr.new_time_offset_sec
+        );
+
+        ti.bpm = corr.new_bpm;
+        ti.time_offset_sec = corr.new_time_offset_sec;
+        g_player.metro.bpm.store(ti.bpm);
+        g_player.timeOffsetSec.store(ti.time_offset_sec);
+        dirty = true;
+        print_estimated_bars();
+      } catch (const std::exception& e) {
+        println(cerr, "autogrid failed: {}", e.what());
+      }
     }
   );
 
