@@ -471,7 +471,9 @@ struct Metronome {
 
   [[nodiscard]] float process(double posSrcFrames, double framesPerBeatSrc, uint32_t device_rate) {
     if (clickLen == 0) clickLen = std::max(1, (int)(device_rate / 100)); // ~10ms
-    uint64_t beatIndex = (uint64_t)std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc);
+    auto beatIndex = static_cast<uint64_t>(
+      std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc)
+    );
     if (beatIndex != lastBeatIndex) {
       lastBeatIndex = beatIndex;
       clickSamplesLeft = clickLen;
@@ -509,12 +511,12 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
 
 // Compute cue frames (in samples) for a track_info at a given sample rate.
 // If bpm_override is not provided, track_info::bpm is used.
-[[nodiscard]] std::vector<double>
+[[nodiscard]] vector<double>
 cue_frames(track_info const& info,
   uint32_t sr, std::optional<double> bpm_override = std::nullopt
 ) {
   assert(sr > 0);
-  std::vector<double> frames;
+  vector<double> frames;
 
   if (info.cue_bars.empty()) return frames;
 
@@ -1150,7 +1152,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
 // Onset detection for beat-grid fitting
 struct OnsetList {
-  std::vector<double> times_sec; // onset positions in seconds
+  vector<double> times_sec; // onset positions in seconds
 };
 
 [[nodiscard]] OnsetList
@@ -1223,8 +1225,8 @@ detect_onsets(const interleaved<float>& track)
 
 struct BeatGridMatch {
   // For regression
-  std::vector<double> beat_indices; // k
-  std::vector<double> onset_times;  // t_k in seconds
+  vector<double> beat_indices; // k
+  vector<double> onset_times;  // t_k in seconds
 };
 
 [[nodiscard]] BeatGridMatch
@@ -1368,8 +1370,7 @@ struct BPMOffsetCorrection {
 
 [[nodiscard]] BPMOffsetCorrection
 compute_bpm_offset_correction(const track_info& ti,
-                              const GridFitResult& fit,
-                              uint32_t /*sr*/)
+                              const GridFitResult& fit)
 {
   BPMOffsetCorrection c{};
   if (fit.n < 2 || fit.B <= 0.0) return c;
@@ -2179,7 +2180,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
           return;
         }
 
-        auto corr = compute_bpm_offset_correction(ti, fit, tr->sample_rate);
+        auto corr = compute_bpm_offset_correction(ti, fit);
         if (corr.new_bpm <= 0.0) {
           println(cerr, "Computed invalid BPM.");
           return;
