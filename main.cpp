@@ -1126,27 +1126,25 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 // If bpm_override is not provided, TrackInfo::bpm is used.
 [[nodiscard]] std::vector<double>
 cue_frames(TrackInfo const& info,
-           uint32_t sr,
-           std::optional<double> bpm_override = std::nullopt)
-{
+  uint32_t sr, std::optional<double> bpm_override = std::nullopt
+) {
+  assert(sr > 0);
   std::vector<double> frames;
-  if (info.cue_bars.empty() || sr == 0) return frames;
 
-  const double bpm_used = bpm_override.value_or(info.bpm);
-  if (bpm_used <= 0.0) return frames;
+  if (info.cue_bars.empty()) return frames;
 
-  const double fpb = static_cast<double>(sr) * 60.0 / bpm_used;
-  const double shift =
-    info.upbeat_beats * fpb + info.time_offset_sec * static_cast<double>(sr);
+  const auto bpm = bpm_override.value_or(info.bpm);
+  assert(bpm > 0.0);
+
+  const auto fpb = 60.0 / bpm * sr;
+  const auto shift = info.upbeat_beats * fpb + info.time_offset_sec * sr;
 
   frames.reserve(info.cue_bars.size());
-  for (int bar : info.cue_bars) {
+  for (int bar: info.cue_bars) {
     // bar is 1-based
-    const double f =
-      shift + static_cast<double>(bar - 1)
-            * static_cast<double>(info.beats_per_bar) * fpb;
-    frames.push_back(f);
+    frames.push_back(shift + (bar - 1) * info.beats_per_bar * fpb);
   }
+
   return frames;
 }
 
