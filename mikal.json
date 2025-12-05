@@ -188,6 +188,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 140.0009629118801,
+      "cue_bars": [
+        17,
+        257
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Exponential Input.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": -0.00092587559005608,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 140.99843302113715,
       "cue_bars": [
         17,
@@ -203,6 +218,81 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 156.00005893701712,
+      "cue_bars": [
+        9,
+        349
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Lost City.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.015203615937609882,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 158.99918021437827,
+      "cue_bars": [
+        33,
+        289
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Ludes.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": -0.006412180917244825,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 148.99975932529125,
+      "cue_bars": [
+        33,
+        321
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Mother O Three.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.006407203036246756,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 141.99978785623472,
+      "cue_bars": [
+        33,
+        321
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Tear Drops from the Sky.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.007696278383569677,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 145.99960143559852,
+      "cue_bars": [
+        41,
+        283
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Visceral Discomfort.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.0043542589321248215,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 148.99889503785028,
       "cue_bars": [
         17,
@@ -214,6 +304,21 @@
         "acid"
       ],
       "time_offset_sec": 0.014155009725111967,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 146.49135364124552,
+      "cue_bars": [
+        17,
+        297
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling Vs Gelbkreuz - Gelbling.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": -0.01821086055721821,
       "upbeat_beats": 0.0
     },
     {
