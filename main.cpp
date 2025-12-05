@@ -1152,12 +1152,14 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   }
 }
 
-// Onset detection for beat-grid fitting
-struct OnsetList {
-  vector<double> times_sec; // onset positions in seconds
+// Transient detection method selector for autogrid
+enum class TransientMethod {
+  Beats,   // aubio_tempo (default)
+  Onsets   // aubio_onset
 };
 
-[[nodiscard]] OnsetList
+// Onset detection for beat-grid fitting
+[[nodiscard]] vector<double>
 detect_onsets(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
@@ -1186,7 +1188,7 @@ detect_onsets(const interleaved<float>& track)
   const size_t channels = track.channels();
   const size_t total_frames = track.frames();
 
-  OnsetList result;
+  vector<double> result;
 
   for (size_t frame = 0; frame < total_frames; frame += hop_s) {
     for (uint_t j = 0; j < hop_s; ++j) {
@@ -1213,20 +1215,20 @@ detect_onsets(const interleaved<float>& track)
         const double track_len_sec =
           static_cast<double>(total_frames) / static_cast<double>(samplerate);
         if (t >= 0.0 && t <= track_len_sec) {
-          result.times_sec.push_back(t);
+          result.push_back(t);
         }
       }
     }
   }
 
-  std::sort(result.times_sec.begin(), result.times_sec.end());
-  result.times_sec.erase(std::unique(result.times_sec.begin(), result.times_sec.end()),
-                         result.times_sec.end());
+  std::sort(result.begin(), result.end());
+  result.erase(std::unique(result.begin(), result.end()),
+               result.end());
   return result;
 }
 
 // Beat detection using aubio_tempo (aubiotrack-style beat tracker).
-[[nodiscard]] OnsetList
+[[nodiscard]] vector<double>
 detect_beats(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
@@ -1257,7 +1259,7 @@ detect_beats(const interleaved<float>& track)
   const size_t channels     = track.channels();
   const size_t total_frames = track.frames();
 
-  OnsetList result;
+  vector<double> result;
 
   for (size_t frame = 0; frame < total_frames; frame += hop_s) {
     // Downmix to mono into inbuf
@@ -1285,16 +1287,16 @@ detect_beats(const interleaved<float>& track)
         const double track_len_sec =
           static_cast<double>(total_frames) / static_cast<double>(samplerate);
         if (t >= 0.0 && t <= track_len_sec) {
-          result.times_sec.push_back(t);
+          result.push_back(t);
         }
       }
     }
   }
 
-  std::sort(result.times_sec.begin(), result.times_sec.end());
-  result.times_sec.erase(
-    std::unique(result.times_sec.begin(), result.times_sec.end()),
-    result.times_sec.end()
+  std::sort(result.begin(), result.end());
+  result.erase(
+    std::unique(result.begin(), result.end()),
+    result.end()
   );
 
   return result;
@@ -1309,14 +1311,14 @@ struct BeatGridMatch {
 [[nodiscard]] BeatGridMatch
 match_beats_to_onsets(const track_info& ti,
                       const interleaved<float>& track,
-                      const OnsetList& onsets,
+                      const vector<double>& onsets,
                       double window_sec = 0.05) // +/- 50 ms
 {
   BeatGridMatch out;
   if (ti.cue_bars.size() < 2) return out; // need at least first & last cue bar
 
   const uint32_t sr = track.sample_rate;
-  if (sr == 0 || track.frames() == 0 || onsets.times_sec.empty()) return out;
+  if (sr == 0 || track.frames() == 0 || onsets.empty()) return out;
 
   const double bpm = ti.bpm;
   if (bpm <= 0.0) return out;
@@ -1337,7 +1339,7 @@ match_beats_to_onsets(const track_info& ti,
       ti.upbeat_beats
     + (double)(first_bar - 1) * (double)ti.beats_per_bar;
 
-  const auto& onsetTimes = onsets.times_sec;
+  const auto& onsetTimes = onsets;
 
   const double trackLenSec =
       (double)track.frames() / (double)sr;
@@ -2167,8 +2169,8 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
   );
 
   sub.register_command("autogrid",
-    "autogrid [window_ms] - refine BPM (±1%) and offset from "
-    "transients between first and last cue bar",
+    "autogrid [window_ms] [method] - refine BPM (±1%) and offset from "
+    "transients between first and last cue bar; method = beats|onsets (default: beats)",
     [&](command_args a) {
       if (!g_player.track) {
         println(cerr, "No track loaded.");
@@ -2180,6 +2182,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
       }
 
       double window_ms = 50.0;   // +/- 50 ms search window
+      TransientMethod method = TransientMethod::Beats; // default
 
       if (a.size() >= 1) {
         if (auto v = parse_number<double>(a[0]); v && *v > 0.0) {
@@ -2190,19 +2193,41 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
         }
       }
 
-      try {
-        // Use beat tracker (aubiotrack-style) instead of raw onset detector.
-        auto beats = detect_beats(*tr);
-        if (beats.times_sec.empty()) {
-          println(cerr, "No beats detected.");
+      if (a.size() >= 2) {
+        string m = a[1];
+        std::ranges::transform(m, m.begin(),
+          [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        if (m == "beats") {
+          method = TransientMethod::Beats;
+        } else if (m == "onsets") {
+          method = TransientMethod::Onsets;
+        } else {
+          println(cerr, "Invalid method '{}'; expected 'beats' or 'onsets'.", m);
           return;
+        }
+      }
+
+      try {
+        vector<double> transients;
+        if (method == TransientMethod::Beats) {
+          transients = detect_beats(*tr);
+          if (transients.empty()) {
+            println(cerr, "No beats detected.");
+            return;
+          }
+        } else {
+          transients = detect_onsets(*tr);
+          if (transients.empty()) {
+            println(cerr, "No onsets detected.");
+            return;
+          }
         }
 
         auto matches = match_beats_to_onsets(
-          ti, *tr, beats, window_ms * 1e-3
+          ti, *tr, transients, window_ms * 1e-3
         );
         if (matches.beat_indices.size() < 4) {
-          println(cerr, "Too few matched beats for reliable fit.");
+          println(cerr, "Too few matched transients for reliable fit.");
           return;
         }
 
