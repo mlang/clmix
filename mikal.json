@@ -188,6 +188,66 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 140.99843302113715,
+      "cue_bars": [
+        17,
+        297
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Into The Wide Blue Yonder.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.011143112417833834,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 148.99889503785028,
+      "cue_bars": [
+        17,
+        261
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Wild Ling.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.014155009725111967,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 142.99877829922994,
+      "cue_bars": [
+        49,
+        193
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling Vs InSaNe TekNoLogY - GenSys Lab.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.016779801986245957,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 138.99945254665104,
+      "cue_bars": [
+        9,
+        273
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling Vs Vikkei - Transistor Symphony.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.012398284962753081,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 150.0,
       "cue_bars": [
         41,
