@@ -1222,14 +1222,10 @@ detect_onsets(const interleaved<float>& track)
   std::sort(result.times_sec.begin(), result.times_sec.end());
   result.times_sec.erase(std::unique(result.times_sec.begin(), result.times_sec.end()),
                          result.times_sec.end());
-  for (auto const &time: result.times_sec) {
-    println(cerr, "{}", time);
-  }
   return result;
 }
 
 // Beat detection using aubio_tempo (aubiotrack-style beat tracker).
-// Same signature and return type as detect_onsets.
 [[nodiscard]] OnsetList
 detect_beats(const interleaved<float>& track)
 {
@@ -2171,7 +2167,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
   );
 
   sub.register_command("autogrid",
-    "autogrid [window_ms] [max_std_ms] - refine BPM (±1%) and offset from "
+    "autogrid [window_ms] - refine BPM (±1%) and offset from "
     "transients between first and last cue bar",
     [&](command_args a) {
       if (!g_player.track) {
@@ -2184,7 +2180,6 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
       }
 
       double window_ms = 50.0;   // +/- 50 ms search window
-      double max_std_ms = 20.0;  // kept for CLI compatibility, but unused now
 
       if (a.size() >= 1) {
         if (auto v = parse_number<double>(a[0]); v && *v > 0.0) {
@@ -2194,15 +2189,6 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
           return;
         }
       }
-      if (a.size() >= 2) {
-        if (auto v = parse_number<double>(a[1]); v && *v >= 0.0) {
-          max_std_ms = *v;
-        } else {
-          println(cerr, "Invalid max_std_ms: {}", v ? "must be >= 0" : v.error());
-          return;
-        }
-      }
-      (void)max_std_ms; // R^2-based check only now
 
       try {
         // Use beat tracker (aubiotrack-style) instead of raw onset detector.
