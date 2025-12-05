@@ -1171,7 +1171,7 @@ detect_onsets(const interleaved<float>& track)
   using onset_ptr = std::unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
   using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
-  onset_ptr onset{ new_aubio_onset((char*)"default", win_s, hop_s, samplerate),
+  onset_ptr onset{ new_aubio_onset("hfc", win_s, hop_s, samplerate),
                    &del_aubio_onset };
   if (!onset) {
     throw std::runtime_error("aubio: failed to create onset object");
@@ -1205,7 +1205,7 @@ detect_onsets(const interleaved<float>& track)
     aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
 
     // onset detected in this hop?
-    if (outbuf->data[0] != 0.0f) {
+    if (fvec_get_sample(outbuf.get(), 0) != 0.0) {
       // aubio_onset_get_last_s returns seconds
       const smpl_t t_sec = aubio_onset_get_last_s(onset.get());
       if (t_sec >= 0.0f) {
@@ -1222,6 +1222,9 @@ detect_onsets(const interleaved<float>& track)
   std::sort(result.times_sec.begin(), result.times_sec.end());
   result.times_sec.erase(std::unique(result.times_sec.begin(), result.times_sec.end()),
                          result.times_sec.end());
+  for (auto const &time: result.times_sec) {
+    println(cerr, "{}", time);
+  }
   return result;
 }
 
