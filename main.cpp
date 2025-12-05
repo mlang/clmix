@@ -1309,16 +1309,16 @@ struct BeatGridMatch {
 };
 
 [[nodiscard]] BeatGridMatch
-match_beats_to_onsets(const track_info& ti,
-                      const interleaved<float>& track,
-                      const vector<double>& onsets,
-                      double window_sec = 0.05) // +/- 50 ms
+match_beats(const track_info& ti,
+            const interleaved<float>& track,
+            TransientMethod method,
+            double window_sec = 0.05) // +/- 50 ms
 {
   BeatGridMatch out;
   if (ti.cue_bars.size() < 2) return out; // need at least first & last cue bar
 
   const uint32_t sr = track.sample_rate;
-  if (sr == 0 || track.frames() == 0 || onsets.empty()) return out;
+  if (sr == 0 || track.frames() == 0) return out;
 
   const double bpm = ti.bpm;
   if (bpm <= 0.0) return out;
@@ -1326,6 +1326,17 @@ match_beats_to_onsets(const track_info& ti,
   const int first_bar = ti.cue_bars.front();
   const int last_bar  = ti.cue_bars.back();
   if (first_bar >= last_bar) return out;
+
+  // Detect transients according to method (exceptions propagate to caller)
+  vector<double> onsetTimes =
+    (method == TransientMethod::Beats)
+      ? detect_beats(track)
+      : detect_onsets(track);
+
+  // Sanity check: enough transients overall
+  if (onsetTimes.size() < 4) {
+    return out;
+  }
 
   const double secondsPerBeat = 60.0 / bpm;
   const double shiftSec =
@@ -1338,8 +1349,6 @@ match_beats_to_onsets(const track_info& ti,
   const double beats_before_first_bar =
       ti.upbeat_beats
     + (double)(first_bar - 1) * (double)ti.beats_per_bar;
-
-  const auto& onsetTimes = onsets;
 
   const double trackLenSec =
       (double)track.frames() / (double)sr;
@@ -1369,7 +1378,7 @@ match_beats_to_onsets(const track_info& ti,
       );
 
       double bestTime = -1.0;
-      double bestAbs   = std::numeric_limits<double>::infinity();
+      double bestAbs  = std::numeric_limits<double>::infinity();
 
       for (; it != onsetTimes.end() && *it <= hi; ++it) {
         double d = *it - gridTime;
@@ -2208,23 +2217,8 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
       }
 
       try {
-        vector<double> transients;
-        if (method == TransientMethod::Beats) {
-          transients = detect_beats(*tr);
-          if (transients.empty()) {
-            println(cerr, "No beats detected.");
-            return;
-          }
-        } else {
-          transients = detect_onsets(*tr);
-          if (transients.empty()) {
-            println(cerr, "No onsets detected.");
-            return;
-          }
-        }
-
-        auto matches = match_beats_to_onsets(
-          ti, *tr, transients, window_ms * 1e-3
+        auto matches = match_beats(
+          ti, *tr, method, window_ms * 1e-3
         );
         if (matches.beat_indices.size() < 4) {
           println(cerr, "Too few matched transients for reliable fit.");
