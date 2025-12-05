@@ -1228,6 +1228,82 @@ detect_onsets(const interleaved<float>& track)
   return result;
 }
 
+// Beat detection using aubio_tempo (aubiotrack-style beat tracker).
+// Same signature and return type as detect_onsets.
+[[nodiscard]] OnsetList
+detect_beats(const interleaved<float>& track)
+{
+  if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
+    throw std::invalid_argument("detect_beats: invalid or empty track");
+  }
+
+  const uint_t win_s = 1024;
+  const uint_t hop_s = 512;
+  const auto samplerate = static_cast<uint_t>(track.sample_rate);
+
+  using tempo_ptr = std::unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
+  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+
+  // Use aubio's default tempo method, as in aubiotrack.c
+  tempo_ptr tempo{ new_aubio_tempo((char*)"default", win_s, hop_s, samplerate),
+                   &del_aubio_tempo };
+  if (!tempo) {
+    throw std::runtime_error("aubio: failed to create tempo object");
+  }
+
+  // aubiotrack uses a 2-sample output vector; we only need index 0.
+  fvec_ptr tempo_out{ new_fvec(2), &del_fvec };
+  fvec_ptr inbuf    { new_fvec(hop_s), &del_fvec };
+  if (!inbuf || !tempo_out) {
+    throw std::runtime_error("aubio: failed to allocate tempo buffers");
+  }
+
+  const size_t channels     = track.channels();
+  const size_t total_frames = track.frames();
+
+  OnsetList result;
+
+  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
+    // Downmix to mono into inbuf
+    for (uint_t j = 0; j < hop_s; ++j) {
+      const size_t fr = frame + j;
+      float v = 0.f;
+      if (fr < total_frames) {
+        float sum = 0.f;
+        for (size_t c = 0; c < channels; ++c) {
+          sum += track[fr, c];
+        }
+        v = sum / static_cast<float>(channels);
+      }
+      inbuf->data[j] = v;
+    }
+
+    aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
+
+    // Beat detected in this hop?
+    if (fvec_get_sample(tempo_out.get(), 0) != 0.0f) {
+      // aubio_tempo_get_last_s returns seconds
+      const smpl_t t_sec = aubio_tempo_get_last_s(tempo.get());
+      if (t_sec >= 0.0f) {
+        const double t = static_cast<double>(t_sec);
+        const double track_len_sec =
+          static_cast<double>(total_frames) / static_cast<double>(samplerate);
+        if (t >= 0.0 && t <= track_len_sec) {
+          result.times_sec.push_back(t);
+        }
+      }
+    }
+  }
+
+  std::sort(result.times_sec.begin(), result.times_sec.end());
+  result.times_sec.erase(
+    std::unique(result.times_sec.begin(), result.times_sec.end()),
+    result.times_sec.end()
+  );
+
+  return result;
+}
+
 struct BeatGridMatch {
   // For regression
   vector<double> beat_indices; // k
@@ -2129,14 +2205,15 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
       (void)max_std_ms; // R^2-based check only now
 
       try {
-        auto onsets = detect_onsets(*tr);
-        if (onsets.times_sec.empty()) {
-          println(cerr, "No onsets detected.");
+        // Use beat tracker (aubiotrack-style) instead of raw onset detector.
+        auto beats = detect_beats(*tr);
+        if (beats.times_sec.empty()) {
+          println(cerr, "No beats detected.");
           return;
         }
 
         auto matches = match_beats_to_onsets(
-          ti, *tr, onsets, window_ms * 1e-3
+          ti, *tr, beats, window_ms * 1e-3
         );
         if (matches.beat_indices.size() < 4) {
           println(cerr, "Too few matched beats for reliable fit.");
