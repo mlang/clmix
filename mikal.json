@@ -61,7 +61,7 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 126.00058046303208,
+      "bpm": 126.0,
       "cue_bars": [
         33,
         161
@@ -70,7 +70,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.25796305560609767,
+      "time_offset_sec": 0.265,
       "upbeat_beats": 0.0
     },
     {
