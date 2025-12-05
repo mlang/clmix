@@ -308,7 +308,7 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 146.49135364124552,
+      "bpm": 146.55959148618857,
       "cue_bars": [
         17,
         297
@@ -318,7 +318,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": -0.01821086055721821,
+      "time_offset_sec": 0.00734151977131603,
       "upbeat_beats": 0.0
     },
     {
