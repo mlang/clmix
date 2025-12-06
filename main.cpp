@@ -2328,11 +2328,10 @@ void export_current_mix(const path& out_path,
 
   const auto frames = static_cast<sf_count_t>(mix.audio.frames());
 
-  SndfileHandle sf(out_path.string(),
-                   SFM_WRITE,
-                   SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                   static_cast<int>(mix.audio.channels()),
-                   static_cast<int>(mix.audio.sample_rate));
+  SndfileHandle sf(out_path.string(), SFM_WRITE,
+    SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+    int(mix.audio.channels()), int(mix.audio.sample_rate)
+  );
 
   if (sf.error() != SF_ERR_NO_ERROR) throw runtime_error(sf.strError());
 
