@@ -2369,9 +2369,9 @@ int main(int argc, char** argv)
   g_db = load_database(trackdb_path);
 
   // Command-line options (after trackdb_path)
-  vector<Matcher>                 opt_random_exprs;
-  std::optional<double>                opt_bpm;
-  std::optional<path> opt_export_path;
+  vector<Matcher>       opt_random_exprs;
+  std::optional<double> opt_bpm;
+  std::optional<path>   opt_export_path;
 
   // Prepare getopt_long
   int opt;
@@ -2849,12 +2849,10 @@ int main(int argc, char** argv)
     );
 
     repl.run("clmix> ");
-
-    // miniplayer destructor will stop/uninit automatically
   } catch (const std::exception& e) {
     println(cerr, "Audio init failed: {}", e.what());
     return EXIT_FAILURE;
   }
 
-  return 0;
+  return EXIT_SUCCESS;
 }
