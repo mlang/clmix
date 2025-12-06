@@ -793,7 +793,7 @@ struct track_database {
     return p.lexically_normal();
   }
 
-  [[nodiscard]] track_info* find(const path& file) {
+  [[nodiscard]] const track_info* find(const path& file) const {
     auto it = items.find(norm(file));
     return (it == items.end()) ? nullptr : &it->second;
   }
@@ -1384,12 +1384,12 @@ compute_bpm_offset_correction(const track_info& ti,
 
 // Resolve mix track paths to track_info, ensuring they exist and have cues.
 [[nodiscard]] vector<track_info>
-resolve_mix_tracks(const vector<path>& files)
+resolve_mix_tracks(const track_database &database, const vector<path>& files)
 {
   vector<track_info> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
-    auto* info = g_db.find(file);
+    auto* info = database.find(file);
     if (!info || info->cue_bars.empty()) {
       throw std::runtime_error(
         "Track missing in DB or has no cues: " + file.generic_string()
@@ -2333,7 +2333,7 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
     throw std::runtime_error("No tracks in mix.");
   }
 
-  auto tracks = resolve_mix_tracks(g_mix_tracks);
+  auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
   double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
   g_player.playing.store(false);
@@ -2381,7 +2381,7 @@ bool export_current_mix(const path& out_path,
     // Release any existing mix from the player to avoid holding two copies in RAM
     g_player.track.reset();
 
-    auto tracks = resolve_mix_tracks(g_mix_tracks);
+    auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
     double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
     // Rebuild a fresh mix with current BPM and tracks, best quality SRC
