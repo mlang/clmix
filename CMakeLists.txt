@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(CLMIX VERSION 1 LANGUAGES CXX)
 
+option(CLMIX_ENABLE_MARCH_NATIVE "Enable -march=native for this build" ON)
+
 find_package(nlohmann_json REQUIRED)
 find_package(PkgConfig)
 pkg_check_modules(Aubio REQUIRED IMPORTED_TARGET aubio)
@@ -25,6 +27,11 @@ target_compile_definitions(clmix
   PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1
           _GLIBCXX_USE_TBB_PAR_BACKEND
 )
+if (CLMIX_ENABLE_MARCH_NATIVE)
+  if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(clmix PRIVATE -march=native)
+  endif()
+endif()
 target_link_libraries(clmix
   PRIVATE nlohmann_json::nlohmann_json
           PkgConfig::Aubio
