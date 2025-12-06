@@ -1406,45 +1406,48 @@ compute_bpm_offset_correction(const track_info& ti,
   return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
 }
 
-// Build a rendered mix as a single Track at device rate/channels.
+struct MixResult {
+  interleaved<float> audio;
+  double bpm = 0.0;
+  unsigned bpb = 4;
+  vector<MixCue> cues;
+};
+
+// Build a rendered mix as a single Track at given sample_rate/channels.
 // Aligns last cue of A to first cue of B. Applies fade-in from start->first cue,
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
 // 'bpm' is the mix BPM to use (no defaulting inside).
-[[nodiscard]] interleaved<float> build_mix_track(
+[[nodiscard]] MixResult build_mix(
   const vector<path>& files,
   double bpm,
+  uint32_t sample_rate,
+  uint32_t channels,
   int src_type = SRC_LINEAR
 ) {
-  if (files.empty()) return {};
+  MixResult result{};
+  if (files.empty()) return result;
 
   // Collect track_info and ensure cues exist
   vector<track_info> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
-    if (!info || !info->cue_bars.empty() == false) {
-      // This condition is logically odd; but we keep original semantics:
-      // require track in DB and at least one cue.
-    }
-  }
-  tracks.clear();
-  tracks.reserve(files.size());
-  for (auto const& file : files) {
-    auto* info = g_db.find(file);
     if (!info || info->cue_bars.empty()) {
-      throw std::runtime_error("Track missing in DB or has no cues: " + file.generic_string());
+      throw std::runtime_error(
+        "Track missing in DB or has no cues: " + file.generic_string()
+      );
     }
     tracks.push_back(*info);
   }
 
-  g_mix_bpm = bpm;
-  g_mix_bpb = tracks.front().beats_per_bar;
+  result.bpm = bpm;
+  result.bpb = tracks.front().beats_per_bar;
 
-  const uint32_t out_rate = g_device_rate;
-  if (!in_range<int>(g_device_channels))
+  if (!in_range<int>(channels))
     throw std::invalid_argument("Device channel count not representable as int");
-  const int outCh = static_cast<int>(g_device_channels);
-  const double fpb = (double)out_rate * 60.0 / bpm;
+  const int outCh = static_cast<int>(channels);
+  const uint32_t out_rate = sample_rate;
+  const double fpb = static_cast<double>(out_rate) * 60.0 / bpm;
 
   struct Item {
     track_info info;
@@ -1461,7 +1464,6 @@ compute_bpm_offset_correction(const track_info& ti,
     [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
-          // Pre-resample peak headroom
           ensure_headroom(audio, kHeadroomDB);
           return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
@@ -1478,12 +1480,11 @@ compute_bpm_offset_correction(const track_info& ti,
             last_cue  = cueFs.back();
           }
 
-          // Clamp
           if (frames == 0) {
             first_cue = last_cue = 0.0;
           } else {
-            first_cue = std::clamp(first_cue, 0.0, (double)(frames - 1));
-            last_cue  = std::clamp(last_cue,  0.0, (double)(frames - 1));
+            first_cue = std::clamp(first_cue, 0.0, static_cast<double>(frames - 1));
+            last_cue  = std::clamp(last_cue,  0.0, static_cast<double>(frames - 1));
           }
 
           return measure_lufs(audio).and_then(
@@ -1508,7 +1509,7 @@ compute_bpm_offset_correction(const track_info& ti,
     items.push_back(std::move(*item));
   }
 
-  // Compute target LUFS as mean of all track LUFS
+  // Target LUFS = mean of track LUFS
   const auto target_lufs = std::ranges::fold_left(
     items | std::views::transform(&Item::lufs), 0.0, std::plus<double>{}
   ) / items.size();
@@ -1531,53 +1532,51 @@ compute_bpm_offset_correction(const track_info& ti,
     total_frames = std::max(total_frames, offsetFrames + it.audio.frames());
   }
 
-  auto out = interleaved<float>(
+  result.audio = interleaved<float>(
     out_rate, static_cast<size_t>(outCh), total_frames
   );
 
-  // Mix down to out channels
+  // Mix down
   const auto outChS = static_cast<size_t>(outCh);
   for (auto &it: items) {
     const size_t inChS = it.audio.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
     for (size_t f = 0; f < it.audio.frames(); ++f) {
-      double absF = it.offset + (double)f;
+      double absF = it.offset + static_cast<double>(f);
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
       if (outF >= total_frames) break;
-      const auto a = fade_for_frame(f, it.audio.frames(),
-        it.first_cue, it.last_cue,
-        fade_curve::Sine  // sine-shaped equal-power style fade
+      const auto a = fade_for_frame(
+        f, it.audio.frames(), it.first_cue, it.last_cue, fade_curve::Sine
       ) * gain_lin;
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         const size_t sC = ch % inChS;
-        out[outF, ch] += a * it.audio[f, sC];
+        result.audio[outF, ch] += a * it.audio[f, sC];
       }
     }
 
-    // Done with this tracks audio
     it.audio.clear();
     it.audio.shrink_to_fit();
   }
 
-  // Final offline two-pass limiter for transparent ceiling control
-  apply_two_pass_limiter_db(out, -1.0f, 200.0f, 40.0f);
+  apply_two_pass_limiter_db(result.audio, -1.0f, 200.0f, 40.0f);
 
-  // Accumulated cue frames and global bar numbers in mix timeline
-  g_mix_cues.clear();
+  // Build cues
+  result.cues.clear();
   for (auto& it : items) {
     auto cueFs = cue_frames(it.info, out_rate, bpm);
     for (size_t idx = 0; idx < cueFs.size(); ++idx) {
       int bar = it.info.cue_bars[idx];
       double mixFrame = it.offset + cueFs[idx];
 
-      // Compute global bar index from mixFrame using integer math on beats.
       double beatsFromZero = mixFrame / fpb;
-      long barIdx = (long)std::floor(beatsFromZero / (double)g_mix_bpb) + 1;
+      long barIdx = static_cast<long>(
+        std::floor(beatsFromZero / static_cast<double>(result.bpb))
+      ) + 1;
 
-      g_mix_cues.push_back(MixCue{
+      result.cues.push_back(MixCue{
         mixFrame,
         barIdx,
         it.info.filename,
@@ -1586,38 +1585,29 @@ compute_bpm_offset_correction(const track_info& ti,
     }
   }
 
-  // Sort by global bar index only; stable_sort preserves insertion order
-  // for cues with the same bar, so the "later" track wins.
-  std::stable_sort(g_mix_cues.begin(), g_mix_cues.end(),
+  std::stable_sort(result.cues.begin(), result.cues.end(),
                    [](const MixCue& a, const MixCue& b) {
                      return a.bar < b.bar;
                    });
 
-  // Deduplicate by bar, keeping the last entry for each bar.
   {
     vector<MixCue> deduped;
-    deduped.reserve(g_mix_cues.size());
+    deduped.reserve(result.cues.size());
 
     size_t i = 0;
-    while (i < g_mix_cues.size()) {
+    while (i < result.cues.size()) {
       size_t j = i + 1;
-      while (j < g_mix_cues.size() && g_mix_cues[j].bar == g_mix_cues[i].bar) {
+      while (j < result.cues.size() && result.cues[j].bar == result.cues[i].bar) {
         ++j;
       }
-      // [i, j) is a run of same bar; keep the last one (j-1)
-      deduped.push_back(MixCue{
-        g_mix_cues[j - 1].frame,
-        g_mix_cues[j - 1].bar,
-        g_mix_cues[j - 1].track,
-        g_mix_cues[j - 1].local_bar
-      });
+      deduped.push_back(result.cues[j - 1]);
       i = j;
     }
 
-    g_mix_cues.swap(deduped);
+    result.cues.swap(deduped);
   }
 
-  return std::move(out);
+  return result;
 }
 
 void play(player_state &player, multichannel<float> output, uint32_t device_rate)
@@ -2354,13 +2344,21 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
 
   g_player.playing.store(false);
-  g_player.track = std::make_shared<interleaved<float>>(
-    build_mix_track(g_mix_tracks, bpm)
+  g_player.track.reset();
+
+  MixResult mix = build_mix(
+    g_mix_tracks, bpm, g_device_rate, g_device_channels
   );
+
+  g_player.track = std::make_shared<interleaved<float>>(std::move(mix.audio));
   g_player.srcPos = 0.0;
   g_player.seekPending.store(false);
   g_player.seekTargetFrames.store(0.0);
-  // keep existing volume (persist across mix rebuilds)
+
+  g_mix_bpm = mix.bpm;
+  g_mix_bpb = mix.bpb;
+  g_mix_cues = std::move(mix.cues);
+
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(g_mix_bpm);
   g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
@@ -2393,9 +2391,11 @@ bool export_current_mix(const path& out_path,
     double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
 
     // Rebuild a fresh mix with current BPM and tracks, best quality SRC
-    auto audio = build_mix_track(
-      g_mix_tracks, bpm, SRC_SINC_BEST_QUALITY
+    MixResult mix = build_mix(
+      g_mix_tracks, bpm, g_device_rate, g_device_channels,
+      SRC_SINC_BEST_QUALITY
     );
+    auto& audio = mix.audio;
 
     if (!in_range<sf_count_t>(audio.frames())) {
       println(cerr, "Export failed: frame count too large for libsndfile.");
