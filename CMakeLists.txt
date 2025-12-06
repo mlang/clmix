@@ -17,8 +17,8 @@ if (NOT HAVE_MINIAUDIO_H)
   message(FATAL_ERROR "miniaudio.h not found. Install miniaudio or add its include directory to the build (e.g. set CMAKE_INCLUDE_PATH or use target_include_directories).")
 endif()
 
+find_package(Boost REQUIRED CONFIG)
 find_package(TBB REQUIRED CONFIG)
-find_package(Boost REQUIRED CONFIG) # header-only math/statistics
 
 add_executable(clmix main.cpp)
 target_compile_features(clmix PRIVATE cxx_std_23)
