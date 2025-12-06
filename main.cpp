@@ -1,8 +1,4 @@
 ﻿// Simple command-line tool to mix electronic music
-//
-// At least C++23 is required to compile this program.
-// No need for defensive programming.
-// We aim for beautiful code.
 
 #include <algorithm>
 #include <atomic>
@@ -43,6 +39,7 @@
 
 #include "vendor/mdspan.hpp"
 
+#include <boost/math/statistics/linear_regression.hpp>
 #include <nlohmann/json.hpp>
 #include <sndfile.hh>
 
@@ -58,7 +55,6 @@ extern "C" {
 
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
-#include <boost/math/statistics/linear_regression.hpp>
 
 namespace {
 
@@ -80,8 +76,6 @@ using std::runtime_error;
 using std::shared_ptr, std::unique_ptr;
 using std::string, std::string_view;
 using std::vector;
-
-constexpr float kHeadroomDB = -2.0f;
 
 template<floating_point T>
 [[nodiscard]] constexpr T dbamp(T db) noexcept
@@ -1409,7 +1403,7 @@ struct MixResult {
     [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
-          ensure_headroom(audio, kHeadroomDB);
+          ensure_headroom(audio, -2.0f);
           return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
