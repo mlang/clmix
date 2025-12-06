@@ -1382,26 +1382,31 @@ compute_bpm_offset_correction(const track_info& ti,
   return c;
 }
 
-// Compute default mix BPM as mean of track BPMs for the given files.
-[[nodiscard]] double compute_default_mix_bpm(
-  const vector<path>& files
-) {
-  if (files.empty()) {
-    throw std::runtime_error("No tracks to compute default BPM.");
-  }
-
+// Resolve mix track paths to track_info, ensuring they exist and have cues.
+[[nodiscard]] vector<track_info>
+resolve_mix_tracks(const vector<path>& files)
+{
   vector<track_info> tracks;
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
-    if (!info || !info->cue_bars.empty() == false) {
+    if (!info || info->cue_bars.empty()) {
       throw std::runtime_error(
         "Track missing in DB or has no cues: " + file.generic_string()
       );
     }
     tracks.push_back(*info);
   }
+  return tracks;
+}
 
+// Compute default mix BPM as mean of track BPMs for the given tracks.
+[[nodiscard]] double compute_default_mix_bpm(
+  const vector<track_info>& tracks
+) {
+  if (tracks.empty()) {
+    throw std::runtime_error("No tracks to compute default BPM.");
+  }
   const auto bpms = tracks | std::views::transform(&track_info::bpm);
   return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
 }
@@ -1885,20 +1890,20 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "bpm [value] - get/set BPM",
     [&](command_args a) {
       if (a.empty()) {
-	println(cout, "BPM: {:.2f}", g_player.metro.bpm.load());
-	return;
+        println(cout, "BPM: {:.2f}", g_player.metro.bpm.load());
+        return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
-	if (*v <= 0.0) {
-	  println(cerr, "Invalid BPM: must be > 0");
-	  return;
-	}
-	g_player.metro.bpm.store(*v);
-	ti.bpm = *v;
-	dirty = true;
-	print_estimated_bars();
+        if (*v <= 0.0) {
+          println(cerr, "Invalid BPM: must be > 0");
+          return;
+        }
+        g_player.metro.bpm.store(*v);
+        ti.bpm = *v;
+        dirty = true;
+        print_estimated_bars();
       } else {
-	println(cerr, "Invalid BPM: {}", v.error());
+        println(cerr, "Invalid BPM: {}", v.error());
       }
     }
   );
@@ -1907,20 +1912,20 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "bpb [value] - get/set beats per bar",
     [&](command_args a) {
       if (a.empty()) {
-	println(cout, "Beats/bar: {}", g_player.metro.bpb.load());
-	return;
+        println(cout, "Beats/bar: {}", g_player.metro.bpb.load());
+        return;
       }
       if (auto v = parse_number<unsigned>(a[0]); v) {
-	if (*v == 0u) {
-	  println(cerr, "Invalid beats-per-bar: must be > 0");
-	  return;
-	}
-	g_player.metro.bpb.store(*v);
-	ti.beats_per_bar = *v;
-	dirty = true;
-	print_estimated_bars();
+        if (*v == 0u) {
+          println(cerr, "Invalid beats-per-bar: must be > 0");
+          return;
+        }
+        g_player.metro.bpb.store(*v);
+        ti.beats_per_bar = *v;
+        dirty = true;
+        print_estimated_bars();
       } else {
-	println(cerr, "Invalid beats-per-bar: {}", v.error());
+        println(cerr, "Invalid beats-per-bar: {}", v.error());
       }
     }
   );
@@ -1947,16 +1952,16 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "offset [seconds] - get/set time offset in seconds (can be negative)",
     [&](command_args a) {
       if (a.empty()) {
-	println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
-	return;
+        println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+        return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
-	ti.time_offset_sec = *v;
-	g_player.timeOffsetSec.store(*v);
-	dirty = true;
-	print_estimated_bars();
+        ti.time_offset_sec = *v;
+        g_player.timeOffsetSec.store(*v);
+        dirty = true;
+        print_estimated_bars();
       } else {
-	println(cerr, "Invalid time offset: {}", v.error());
+        println(cerr, "Invalid time offset: {}", v.error());
       }
     }
   );
@@ -1965,31 +1970,31 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "cue <bar> - add a cue at given bar (1-based)",
     [&](command_args a) {
       if (a.size() != 1) {
-	println(cerr, "Usage: cue <bar>");
-	return;
+        println(cerr, "Usage: cue <bar>");
+        return;
       }
       if (auto bar = parse_number<int>(a[0]); bar) {
-	if (*bar <= 0) {
-	  println(cerr, "Invalid bar: must be > 0");
-	  return;
-	}
-	if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
-	  ti.cue_bars.push_back(*bar);
-	  std::sort(ti.cue_bars.begin(), ti.cue_bars.end());
-	  dirty = true;
-	}
-	if (ti.cue_bars.empty()) {
-	  println(cout, "(no cues)");
-	} else {
-	  cout << "Cues: ";
-	  for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
-	    if (i) cout << ',';
-	    cout << ti.cue_bars[i];
-	  }
-	  cout << "\n";
-	}
+        if (*bar <= 0) {
+          println(cerr, "Invalid bar: must be > 0");
+          return;
+        }
+        if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
+          ti.cue_bars.push_back(*bar);
+          std::sort(ti.cue_bars.begin(), ti.cue_bars.end());
+          dirty = true;
+        }
+        if (ti.cue_bars.empty()) {
+          println(cout, "(no cues)");
+        } else {
+          cout << "Cues: ";
+          for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
+            if (i) cout << ',';
+            cout << ti.cue_bars[i];
+          }
+          cout << "\n";
+        }
       } else {
-	println(cerr, "Invalid bar: {}", bar.error());
+        println(cerr, "Invalid bar: {}", bar.error());
       }
     }
   );
@@ -1998,15 +2003,15 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "uncue <bar> - remove a cue",
     [&](command_args a) {
       if (a.size() != 1) {
-	println(cerr, "Usage: uncue <bar>");
-	return;
+        println(cerr, "Usage: uncue <bar>");
+        return;
       }
       if (auto bar = parse_number<int>(a[0]); bar) {
-	if (std::erase(ti.cue_bars, *bar) > 0) {
-	  dirty = true;
-	}
+        if (std::erase(ti.cue_bars, *bar) > 0) {
+          dirty = true;
+        }
       } else {
-	println(cerr, "Invalid bar: {}", bar.error());
+        println(cerr, "Invalid bar: {}", bar.error());
       }
     }
   );
@@ -2015,12 +2020,12 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "List cue bars",
     [&](command_args) {
       if (ti.cue_bars.empty()) {
-	println(cout, "(no cues)");
-	return;
+        println(cout, "(no cues)");
+        return;
       }
       for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
-	if (i) cout << ',';
-	cout << ti.cue_bars[i];
+        if (i) cout << ',';
+        cout << ti.cue_bars[i];
       }
       cout << "\n";
     }
@@ -2030,14 +2035,14 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "List tags for this track",
     [&](command_args) {
       if (ti.tags.empty()) {
-	println(cout, "(no tags)");
-	return;
+        println(cout, "(no tags)");
+        return;
       }
       bool first = true;
       for (const auto& tag : ti.tags) {
-	if (!first) cout << ", ";
-	cout << tag;
-	first = false;
+        if (!first) cout << ", ";
+        cout << tag;
+        first = false;
       }
       cout << "\n";
     }
@@ -2047,31 +2052,31 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "tag <name> - add a tag to this track",
     [&](command_args a) {
       if (a.size() != 1) {
-	println(cerr, "Usage: tag <name>");
-	return;
+        println(cerr, "Usage: tag <name>");
+        return;
       }
       string name = a[0];
       auto first = std::find_if_not(name.begin(), name.end(),
-				    [](unsigned char c){ return std::isspace(c); });
+                                    [](unsigned char c){ return std::isspace(c); });
       auto last  = std::find_if_not(name.rbegin(), name.rend(),
-				    [](unsigned char c){ return std::isspace(c); }).base();
+                                    [](unsigned char c){ return std::isspace(c); }).base();
       if (first >= last) {
-	println(cerr, "Empty tag name.");
-	return;
+        println(cerr, "Empty tag name.");
+        return;
       }
       string trimmed(first, last);
       if (trimmed.empty()) {
-	println(cerr, "Empty tag name.");
-	return;
+        println(cerr, "Empty tag name.");
+        return;
       }
       ti.tags.insert(trimmed);
       dirty = true;
       cout << "Tags: ";
       bool firstOut = true;
       for (const auto& tag : ti.tags) {
-	if (!firstOut) cout << ", ";
-	cout << tag;
-	firstOut = false;
+        if (!firstOut) cout << ", ";
+        cout << tag;
+        firstOut = false;
       }
       cout << "\n";
     }
@@ -2194,11 +2199,11 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     [&](command_args) {
       g_db.upsert(ti);
       if (g_db.save(trackdb_path)) {
-	println(cout, "Saved to {}", trackdb_path.generic_string());
-	dirty = false;
+        println(cout, "Saved to {}", trackdb_path.generic_string());
+        dirty = false;
       } else {
-	println(cerr, "Failed to save DB to {}",
-		trackdb_path.generic_string());
+        println(cerr, "Failed to save DB to {}",
+                trackdb_path.generic_string());
       }
     }
   );
@@ -2207,8 +2212,8 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "Start playback with metronome overlay",
     [&](command_args) {
       if (!g_player.track) {
-	println(cerr, "No track loaded.");
-	return;
+        println(cerr, "No track loaded.");
+        return;
       }
       g_player.seekPending.store(false);
       g_player.playing.store(true);
@@ -2226,30 +2231,30 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "seek <bar> - jump to given bar (1-based)",
     [&](command_args a) {
       if (a.size() != 1) {
-	println(cerr, "Usage: seek <bar>");
-	return;
+        println(cerr, "Usage: seek <bar>");
+        return;
       }
       if (auto bar1 = parse_number<int>(a[0]); bar1) {
-	int bar0 = std::max(0, *bar1 - 1);
-	auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
-	unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
-	double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
-	double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
-	double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
-	size_t total_frames = tr->frames();
-	if (target >= (double)total_frames) target = (double)total_frames - 1.0;
-	if (target < 0.0) target = 0.0;
-	if (!g_player.playing.load()) {
-	  g_player.srcPos = target;
-	  g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-	  g_player.seekTargetFrames.store(target);
-	  g_player.seekPending.store(false);
-	} else {
-	  g_player.seekTargetFrames.store(target);
-	  g_player.seekPending.store(true);
-	}
+        int bar0 = std::max(0, *bar1 - 1);
+        auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
+        unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
+        double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
+        double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
+        double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
+        size_t total_frames = tr->frames();
+        if (target >= (double)total_frames) target = (double)total_frames - 1.0;
+        if (target < 0.0) target = 0.0;
+        if (!g_player.playing.load()) {
+          g_player.srcPos = target;
+          g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
+          g_player.seekTargetFrames.store(target);
+          g_player.seekPending.store(false);
+        } else {
+          g_player.seekTargetFrames.store(target);
+          g_player.seekPending.store(true);
+        }
       } else {
-	println(cerr, "Invalid bar number: {}", bar1.error());
+        println(cerr, "Invalid bar number: {}", bar1.error());
       }
     }
   );
@@ -2328,22 +2333,11 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
     throw std::runtime_error("No tracks in mix.");
   }
 
-  double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
+  auto tracks = resolve_mix_tracks(g_mix_tracks);
+  double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
   g_player.playing.store(false);
   g_player.track.reset();
-
-  vector<track_info> tracks;
-  tracks.reserve(g_mix_tracks.size());
-  for (auto const& file : g_mix_tracks) {
-    auto* info = g_db.find(file);
-    if (!info || info->cue_bars.empty()) {
-      throw std::runtime_error(
-        "Track missing in DB or has no cues: " + file.generic_string()
-      );
-    }
-    tracks.push_back(*info);
-  }
 
   MixResult mix = build_mix(
     tracks, bpm, g_device_rate, g_device_channels
@@ -2387,19 +2381,8 @@ bool export_current_mix(const path& out_path,
     // Release any existing mix from the player to avoid holding two copies in RAM
     g_player.track.reset();
 
-    double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
-
-    vector<track_info> tracks;
-    tracks.reserve(g_mix_tracks.size());
-    for (auto const& file : g_mix_tracks) {
-      auto* info = g_db.find(file);
-      if (!info || info->cue_bars.empty()) {
-        throw std::runtime_error(
-          "Track missing in DB or has no cues: " + file.generic_string()
-        );
-      }
-      tracks.push_back(*info);
-    }
+    auto tracks = resolve_mix_tracks(g_mix_tracks);
+    double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
     // Rebuild a fresh mix with current BPM and tracks, best quality SRC
     MixResult mix = build_mix(
@@ -2584,39 +2567,39 @@ int main(int argc, char** argv)
     repl.register_command("help",
       "List commands",
       [&](command_args) {
-	repl.print_help();
+        repl.print_help();
       }
     );
     repl.register_command("exit",
       "Exit program",
       [&](command_args) {
-	repl.stop();
+        repl.stop();
       }
     );
     repl.register_command("quit",
       "Alias for exit",
       [&](command_args) {
-	repl.stop();
+        repl.stop();
       }
     );
     repl.register_command("echo",
       "Echo arguments; supports quoted args",
       [](command_args args){
-	for (size_t i = 0; i < args.size(); ++i) {
-	  if (i) cout << ' ';
-	  cout << args[i];
-	}
-	cout << "\n";
+        for (size_t i = 0; i < args.size(); ++i) {
+          if (i) cout << ' ';
+          cout << args[i];
+        }
+        cout << "\n";
       }
     );
     repl.register_command("track-info",
       "track-info <file> - open per-track shell",
       [&](command_args args) {
-	if (args.size() != 1) {
-	  println(cerr, "Usage: track-info <file>");
-	  return;
-	}
-	run_track_info_shell(args[0], trackdb_path);
+        if (args.size() != 1) {
+          println(cerr, "Usage: track-info <file>");
+          return;
+        }
+        run_track_info_shell(args[0], trackdb_path);
       }
     );
     
@@ -2626,167 +2609,167 @@ int main(int argc, char** argv)
     repl.register_command("add",
       "add <file> - add track to mix (opens track-info if not in DB)",
       [&](command_args a) {
-	if (a.size() != 1) {
-	  println(cerr, "Usage: add <file>");
-	  return;
-	}
-	path f = a[0];
-	if (!g_db.find(f)) {
-	  run_track_info_shell(f, trackdb_path);
-	}
-	if (!g_db.find(f)) {
-	  println(cerr, "Track still not in DB. Aborting.");
-	  return;
-	}
-	g_mix_tracks.push_back(f);
-	try {
-	  rebuild_mix_into_player(std::nullopt);
-	  cout << "Added. Mix size: " << g_mix_tracks.size()
-		    << ", BPM: " << g_mix_bpm
-		    << ", BPB: " << g_mix_bpb << "\n";
-	} catch (const std::exception& e) {
-	  println(cerr, "Failed to build mix: {}", e.what());
-	}
+        if (a.size() != 1) {
+          println(cerr, "Usage: add <file>");
+          return;
+        }
+        path f = a[0];
+        if (!g_db.find(f)) {
+          run_track_info_shell(f, trackdb_path);
+        }
+        if (!g_db.find(f)) {
+          println(cerr, "Track still not in DB. Aborting.");
+          return;
+        }
+        g_mix_tracks.push_back(f);
+        try {
+          rebuild_mix_into_player(std::nullopt);
+          cout << "Added. Mix size: " << g_mix_tracks.size()
+                    << ", BPM: " << g_mix_bpm
+                    << ", BPB: " << g_mix_bpb << "\n";
+        } catch (const std::exception& e) {
+          println(cerr, "Failed to build mix: {}", e.what());
+        }
       }
     );
 
     repl.register_command("bpm",
       "bpm [value] - show/set mix BPM (recomputes mix)",
       [&](command_args a) {
-	if (g_mix_tracks.empty()) {
-	  println(cerr, "No tracks in mix.");
-	  return;
-	}
-	if (a.empty()) {
-	  println(cout, "Mix BPM: {:.2f}", g_mix_bpm);
-	  return;
-	}
-	if (auto v = parse_number<double>(a[0]); v) {
-	  if (*v <= 0.0) {
-	    println(cerr, "Invalid BPM: must be > 0");
-	    return;
-	  }
-	  try {
-	    rebuild_mix_into_player(*v);
-	    println(cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
-	  } catch (const std::exception& e) {
-	    println(cerr, "Failed to rebuild mix: {}", e.what());
-	  }
-	} else {
-	  println(cerr, "Invalid BPM: {}", v.error());
-	}
+        if (g_mix_tracks.empty()) {
+          println(cerr, "No tracks in mix.");
+          return;
+        }
+        if (a.empty()) {
+          println(cout, "Mix BPM: {:.2f}", g_mix_bpm);
+          return;
+        }
+        if (auto v = parse_number<double>(a[0]); v) {
+          if (*v <= 0.0) {
+            println(cerr, "Invalid BPM: must be > 0");
+            return;
+          }
+          try {
+            rebuild_mix_into_player(*v);
+            println(cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
+          } catch (const std::exception& e) {
+            println(cerr, "Failed to rebuild mix: {}", e.what());
+          }
+        } else {
+          println(cerr, "Invalid BPM: {}", v.error());
+        }
       }
     );
 
     repl.register_command("play",
       "Start playback (mix)",
       [&](command_args) {
-	if (!g_player.track) {
-	  if (g_mix_tracks.empty()) {
-	    println(cerr, "No tracks in mix.");
-	    return;
-	  }
-	  try {
-	    rebuild_mix_into_player(std::nullopt);
-	  } catch (const std::exception& e) {
-	    println(cerr, "Build mix failed: {}", e.what());
-	    return;
-	  }
-	}
-	g_player.seekPending.store(false);
-	g_player.playing.store(true);
+        if (!g_player.track) {
+          if (g_mix_tracks.empty()) {
+            println(cerr, "No tracks in mix.");
+            return;
+          }
+          try {
+            rebuild_mix_into_player(std::nullopt);
+          } catch (const std::exception& e) {
+            println(cerr, "Build mix failed: {}", e.what());
+            return;
+          }
+        }
+        g_player.seekPending.store(false);
+        g_player.playing.store(true);
       }
     );
 
     repl.register_command("stop",
       "Stop playback",
       [&](command_args) {
-	g_player.playing.store(false);
+        g_player.playing.store(false);
       }
     );
 
     repl.register_command("seek",
       "seek <bar> - jump to mix bar (1-based)",
       [&](command_args a) {
-	if (a.size() != 1 || !g_player.track) {
-	  println(cerr, "Usage: seek <bar>");
-	  return;
-	}
-	if (auto bar1 = parse_number<int>(a[0]); bar1) {
-	  int bar0 = std::max(0, *bar1 - 1);
-	  double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
-	  double shift = g_player.upbeatBeats.load() * framesPerBeat
-			 + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
-	  double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
-	  size_t total_frames = g_player.track->frames();
-	  if (target >= (double)total_frames) target = (double)total_frames - 1.0;
-	  if (target < 0.0) target = 0.0;
-	  if (!g_player.playing.load()) {
-	    g_player.srcPos = target;
-	    g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-	    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-	    g_player.seekPending.store(false, std::memory_order_relaxed);
-	  } else {
-	    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-	    g_player.seekPending.store(true, std::memory_order_release);
-	  }
-	} else {
-	  println(cerr, "Invalid bar number: {}", bar1.error());
-	}
+        if (a.size() != 1 || !g_player.track) {
+          println(cerr, "Usage: seek <bar>");
+          return;
+        }
+        if (auto bar1 = parse_number<int>(a[0]); bar1) {
+          int bar0 = std::max(0, *bar1 - 1);
+          double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
+          double shift = g_player.upbeatBeats.load() * framesPerBeat
+                         + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
+          double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
+          size_t total_frames = g_player.track->frames();
+          if (target >= (double)total_frames) target = (double)total_frames - 1.0;
+          if (target < 0.0) target = 0.0;
+          if (!g_player.playing.load()) {
+            g_player.srcPos = target;
+            g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
+            g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+            g_player.seekPending.store(false, std::memory_order_relaxed);
+          } else {
+            g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+            g_player.seekPending.store(true, std::memory_order_release);
+          }
+        } else {
+          println(cerr, "Invalid bar number: {}", bar1.error());
+        }
       }
     );
 
     repl.register_command("cues",
       "List all cue points in current mix",
       [&](command_args) {
-	if (g_mix_cues.empty()) {
-	  println(cout, "(no cues)");
-	  return;
-	}
-	for (const auto& c : g_mix_cues) {
-	  auto name = c.track.filename().generic_string();
-	  println(cout, "mix bar {}  |  track: {}  |  track bar {}",
-		  c.bar, name, c.local_bar);
-	}
+        if (g_mix_cues.empty()) {
+          println(cout, "(no cues)");
+          return;
+        }
+        for (const auto& c : g_mix_cues) {
+          auto name = c.track.filename().generic_string();
+          println(cout, "mix bar {}  |  track: {}  |  track bar {}",
+                  c.bar, name, c.local_bar);
+        }
       }
     );
 
     repl.register_command("tags",
       "List all tags present in track DB",
       [&](command_args) {
-	// Count how many tracks have each tag
-	std::map<std::string, size_t> counts;
-	for (const auto& [path, ti] : g_db.items) {
-	  (void)path;
-	  for (const auto& tag : ti.tags) {
-	    ++counts[tag];
-	  }
-	}
+        // Count how many tracks have each tag
+        std::map<std::string, size_t> counts;
+        for (const auto& [path, ti] : g_db.items) {
+          (void)path;
+          for (const auto& tag : ti.tags) {
+            ++counts[tag];
+          }
+        }
 
-	if (counts.empty()) {
-	  println(cout, "(no tags)");
-	  return;
-	}
+        if (counts.empty()) {
+          println(cout, "(no tags)");
+          return;
+        }
 
-	// Move to vector and sort by count (descending), then by tag name
-	vector<std::pair<std::string, size_t>> v;
-	v.reserve(counts.size());
-	for (auto& [tag, cnt] : counts) {
-	  v.emplace_back(tag, cnt);
-	}
+        // Move to vector and sort by count (descending), then by tag name
+        vector<std::pair<std::string, size_t>> v;
+        v.reserve(counts.size());
+        for (auto& [tag, cnt] : counts) {
+          v.emplace_back(tag, cnt);
+        }
 
-	std::ranges::sort(v, [](auto const& a, auto const& b) {
-	  if (a.second != b.second) return a.second > b.second; // more tracks first
-	  return a.first < b.first;                             // tie-break by name
-	});
+        std::ranges::sort(v, [](auto const& a, auto const& b) {
+          if (a.second != b.second) return a.second > b.second; // more tracks first
+          return a.first < b.first;                             // tie-break by name
+        });
 
-	bool first = true;
-	for (auto const& [tag, cnt] : v) {
-	  if (!first) cout << ", ";
-	  cout << tag << " (" << cnt << ")";
-	  first = false;
-	}
-	cout << "\n";
+        bool first = true;
+        for (auto const& [tag, cnt] : v) {
+          if (!first) cout << ", ";
+          cout << tag << " (" << cnt << ")";
+          first = false;
+        }
+        cout << "\n";
       }
     );
 
@@ -2851,87 +2834,87 @@ int main(int argc, char** argv)
       "random [expr1 [expr2 ...]] - build mix from DB; "
       "no expr => all tracks; multiple exprs => append random block per expr",
       [&](command_args args) {
-	if (g_db.items.empty()) {
-	  println(cerr, "Track DB is empty.");
-	  return;
-	}
+        if (g_db.items.empty()) {
+          println(cerr, "Track DB is empty.");
+          return;
+        }
 
-	std::mt19937 rng(std::random_device{}());
-	g_mix_tracks.clear();
+        std::mt19937 rng(std::random_device{}());
+        g_mix_tracks.clear();
 
-	auto append_block_for_matcher = [&](const Matcher& matcher,
-					    std::string_view desc) -> bool {
-	  vector<path> group;
-	  group.reserve(g_db.items.size());
-	  for (const auto& kv : g_db.items) {
-	    const track_info& ti = kv.second;
-	    if (!ti.cue_bars.empty() && matcher(ti)) {
-	      group.push_back(ti.filename);
-	    }
-	  }
-	  if (group.empty()) {
-	    if (desc.empty()) {
-	      println(cerr, "No tracks with cues in DB.");
-	    } else {
-	      println(cerr, "No tracks with cues matching expression '{}'.",
+        auto append_block_for_matcher = [&](const Matcher& matcher,
+                                            std::string_view desc) -> bool {
+          vector<path> group;
+          group.reserve(g_db.items.size());
+          for (const auto& kv : g_db.items) {
+            const track_info& ti = kv.second;
+            if (!ti.cue_bars.empty() && matcher(ti)) {
+              group.push_back(ti.filename);
+            }
+          }
+          if (group.empty()) {
+            if (desc.empty()) {
+              println(cerr, "No tracks with cues in DB.");
+            } else {
+              println(cerr, "No tracks with cues matching expression '{}'.",
                       desc);
-	    }
-	    return false;
-	  }
-	  std::shuffle(group.begin(), group.end(), rng);
-	  g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
-	  return true;
-	};
+            }
+            return false;
+          }
+          std::shuffle(group.begin(), group.end(), rng);
+          g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
+          return true;
+        };
 
-	if (args.empty()) {
-	  // No matcher: use all tracks with cues
-	  Matcher match_all; // default-constructed => always true
-	  if (!append_block_for_matcher(match_all, {})) return;
-	} else {
-	  for (const auto& expr : args) {
-	    Matcher matcher;
-	    try {
-	      matcher = Matcher::parse(expr);
-	    } catch (const std::exception& e) {
-	      println(cerr, "Invalid tag expression '{}': {}", expr, e.what());
-	      g_mix_tracks.clear();
-	      return;
-	    }
-	    if (!append_block_for_matcher(matcher, expr)) {
-	      g_mix_tracks.clear();
-	      return;
-	    }
-	  }
-	}
+        if (args.empty()) {
+          // No matcher: use all tracks with cues
+          Matcher match_all; // default-constructed => always true
+          if (!append_block_for_matcher(match_all, {})) return;
+        } else {
+          for (const auto& expr : args) {
+            Matcher matcher;
+            try {
+              matcher = Matcher::parse(expr);
+            } catch (const std::exception& e) {
+              println(cerr, "Invalid tag expression '{}': {}", expr, e.what());
+              g_mix_tracks.clear();
+              return;
+            }
+            if (!append_block_for_matcher(matcher, expr)) {
+              g_mix_tracks.clear();
+              return;
+            }
+          }
+        }
 
-	println(cout, "Track order:");
-	for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-	  println(cout, "  {}. {}",
-		       i + 1, g_mix_tracks[i].generic_string());
-	}
-	try {
-	  rebuild_mix_into_player(std::nullopt);
-	  println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
-		  g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
-	} catch (const std::exception& e) {
-	  println(cerr, "Failed to build random mix: {}", e.what());
-	}
+        println(cout, "Track order:");
+        for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
+          println(cout, "  {}. {}",
+                       i + 1, g_mix_tracks[i].generic_string());
+        }
+        try {
+          rebuild_mix_into_player(std::nullopt);
+          println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
+                  g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+        } catch (const std::exception& e) {
+          println(cerr, "Failed to build random mix: {}", e.what());
+        }
       }
     );
 
     repl.register_command("export",
       "export <file.wav> - render mix to 24-bit WAV",
       [&](command_args a) {
-	if (a.size() != 1) {
-	  println(cerr, "Usage: export <file.wav>");
-	  return;
-	}
-	if (g_mix_tracks.empty()) {
-	  println(cerr, "No tracks in mix.");
-	  return;
-	}
+        if (a.size() != 1) {
+          println(cerr, "Usage: export <file.wav>");
+          return;
+        }
+        if (g_mix_tracks.empty()) {
+          println(cerr, "No tracks in mix.");
+          return;
+        }
 
-	(void)export_current_mix(a[0]);
+        (void)export_current_mix(a[0]);
       }
     );
 
