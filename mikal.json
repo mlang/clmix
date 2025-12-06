@@ -353,6 +353,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        53,
+        285
+      ],
+      "filename": "Acidcore/OBS.CUR/OBS.CUR HS10 - OBS.CUR/Enko - OBS.CUR HS010 - 04 Drown.flac",
+      "tags": [
+        "Enko",
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 150.0,
       "cue_bars": [
         41,
@@ -1302,6 +1318,7 @@
       ],
       "filename": "Psytrance/Shamanic Tales/Rising Dust - Shofar/01 - Astrix & Rising Dust - Universo.flac",
       "tags": [
+        "acid",
         "psy"
       ],
       "time_offset_sec": 0.0,
