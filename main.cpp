@@ -76,6 +76,7 @@ using std::in_range;
 using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
       std::is_same_v;
 using std::println;
+using std::runtime_error;
 using std::shared_ptr, std::unique_ptr;
 using std::string, std::string_view;
 using std::vector;
@@ -801,89 +802,67 @@ struct track_database {
   void upsert(const track_info& info) {
     items[norm(info.filename)] = info;
   }
-
-  bool load(const path& dbfile)
-  {
-    items.clear();
-
-    std::ifstream in(dbfile);
-    if (!in.is_open()) {
-      // Missing file => treat as empty DB, like load()
-      return false;
-    }
-
-    json j;
-    try {
-      in >> j;
-    } catch (const std::exception& e) {
-      println(cerr, "Failed to parse JSON trackdb '{}': {}",
-              dbfile.generic_string(), e.what());
-      return false;
-    }
-
-    if (!j.is_object()) {
-      println(cerr, "Invalid JSON trackdb '{}': root is not an object",
-              dbfile.generic_string());
-      return false;
-    }
-
-    // Version is optional but recommended; currently we only support 1.
-    int version = j.value("version", 1);
-    if (version != 1) {
-      println(cerr, "Unsupported trackdb JSON version {} in '{}'",
-              version, dbfile.generic_string());
-      return false;
-    }
-
-    if (!j.contains("tracks") || !j["tracks"].is_array()) {
-      println(cerr, "Invalid JSON trackdb '{}': missing 'tracks' array",
-              dbfile.generic_string());
-      return false;
-    }
-
-    try {
-      for (const auto& jti : j["tracks"])
-        upsert(jti.get<track_info>());
-    } catch (const std::exception& e) {
-      println(cerr, "Error decoding track_info from JSON '{}': {}",
-              dbfile.generic_string(), e.what());
-      items.clear();
-      return false;
-    }
-
-    return true;
-  }
-
-  bool save(const path& dbfile) const
-  {
-    auto tracks = json::array();
-    for (const auto& [key, ti] : items) {
-      tracks.push_back(json(ti));
-    }
-
-    json root = {
-      {"version", 1},
-      {"tracks", std::move(tracks)}
-    };
-
-    std::ofstream out(dbfile, std::ios::trunc);
-    if (!out.is_open()) {
-      println(cerr, "Failed to open JSON trackdb for writing: {}",
-              dbfile.generic_string());
-      return false;
-    }
-
-    try {
-      out << root.dump(2); // pretty-print with 2-space indent
-    } catch (const std::exception& e) {
-      println(cerr, "Failed to write JSON trackdb '{}': {}",
-              dbfile.generic_string(), e.what());
-      return false;
-    }
-
-    return true;
-  }
 };
+
+track_database load_database(const path& dbfile)
+{
+  std::ifstream in(dbfile);
+  in.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+  in.open(dbfile);
+
+  track_database database;
+  json j;
+  in >> j;
+
+  if (!j.is_object()) throw runtime_error("root is not an object");
+
+  int version = j.value("version", 1);
+  if (version != 1) throw runtime_error("Unsupported trackdb version");
+
+  if (!j.contains("tracks") || !j["tracks"].is_array())
+    throw runtime_error("missing 'tracks' array");
+
+  for (const auto& jti : j["tracks"]) database.upsert(jti.get<track_info>());
+
+  return database;
+}
+
+void save(track_database const &database, const path& dbfile)
+{
+  auto tracks = json::array();
+  for (const auto& [key, ti] : database.items) {
+    tracks.push_back(json(ti));
+  }
+
+  json root = {
+    {"version", 1},
+    {"tracks", std::move(tracks)}
+  };
+
+  std::ofstream out;
+  out.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+  out.open(dbfile, std::ios::trunc);
+
+  out << root.dump(2); // pretty-print with 2-space indent
+}
+
+// Resolve mix track paths to track_info, ensuring they exist and have cues.
+[[nodiscard]] vector<track_info>
+resolve_mix_tracks(const track_database &database, const vector<path>& files)
+{
+  vector<track_info> tracks;
+  tracks.reserve(files.size());
+  for (auto const& file : files) {
+    auto* info = database.find(file);
+    if (!info || info->cue_bars.empty()) {
+      throw runtime_error(
+        "Track missing in DB or has no cues: " + file.generic_string()
+      );
+    }
+    tracks.push_back(*info);
+  }
+  return tracks;
+}
 
 struct player_state {
   std::atomic<bool> playing{false};
@@ -939,7 +918,7 @@ public:
 
     if (ma_result res = ma_device_init(nullptr, &config, &device_);
         res != MA_SUCCESS) {
-      throw std::runtime_error(
+      throw runtime_error(
         string("Audio device init failed: ") + ma_result_description(res)
       );
     }
@@ -954,7 +933,7 @@ public:
 
   void start() {
     if (ma_result res = ma_device_start(&device_); res != MA_SUCCESS) {
-      throw std::runtime_error(
+      throw runtime_error(
         string("Audio device start failed: ") + ma_result_description(res)
       );
     }
@@ -1044,12 +1023,12 @@ using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
   aubio_tempo_ptr tempo{
     new_aubio_tempo("default", win_s, hop_s, samplerate), &del_aubio_tempo
   };
-  if (!tempo) throw std::runtime_error("aubio: failed to create tempo object");
+  if (!tempo) throw runtime_error("aubio: failed to create tempo object");
 
   fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
   fvec_ptr out{ new_fvec(1), &del_fvec };
   if (!inbuf || !out) {
-    throw std::runtime_error("aubio: failed to allocate buffers");
+    throw runtime_error("aubio: failed to allocate buffers");
   }
 
   const size_t channels = track.channels();
@@ -1130,12 +1109,12 @@ detect_onsets(const interleaved<float>& track)
   aubio_onset_ptr onset{
     new_aubio_onset("hfc", win_s, hop_s, samplerate), &del_aubio_onset
   };
-  if (!onset) throw std::runtime_error("aubio: failed to create onset object");
+  if (!onset) throw runtime_error("aubio: failed to create onset object");
 
   fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
   fvec_ptr outbuf{ new_fvec(1), &del_fvec };
   if (!inbuf || !outbuf) {
-    throw std::runtime_error("aubio: failed to allocate onset buffers");
+    throw runtime_error("aubio: failed to allocate onset buffers");
   }
 
   const size_t channels = track.channels();
@@ -1183,12 +1162,12 @@ detect_beats(const interleaved<float>& track)
   aubio_tempo_ptr tempo{
     new_aubio_tempo("default", win_s, hop_s, samplerate), &del_aubio_tempo
   };
-  if (!tempo) throw std::runtime_error("aubio: failed to create tempo object");
+  if (!tempo) throw runtime_error("aubio: failed to create tempo object");
 
   fvec_ptr tempo_out{ new_fvec(2), &del_fvec };
   fvec_ptr inbuf    { new_fvec(hop_s), &del_fvec };
   if (!inbuf || !tempo_out) {
-    throw std::runtime_error("aubio: failed to allocate tempo buffers");
+    throw runtime_error("aubio: failed to allocate tempo buffers");
   }
 
   const size_t channels     = track.channels();
@@ -1382,30 +1361,12 @@ compute_bpm_offset_correction(const track_info& ti,
   return c;
 }
 
-// Resolve mix track paths to track_info, ensuring they exist and have cues.
-[[nodiscard]] vector<track_info>
-resolve_mix_tracks(const track_database &database, const vector<path>& files)
-{
-  vector<track_info> tracks;
-  tracks.reserve(files.size());
-  for (auto const& file : files) {
-    auto* info = database.find(file);
-    if (!info || info->cue_bars.empty()) {
-      throw std::runtime_error(
-        "Track missing in DB or has no cues: " + file.generic_string()
-      );
-    }
-    tracks.push_back(*info);
-  }
-  return tracks;
-}
-
 // Compute default mix BPM as mean of track BPMs for the given tracks.
 [[nodiscard]] double compute_default_mix_bpm(
   const vector<track_info>& tracks
 ) {
   if (tracks.empty()) {
-    throw std::runtime_error("No tracks to compute default BPM.");
+    throw runtime_error("No tracks to compute default BPM.");
   }
   const auto bpms = tracks | std::views::transform(&track_info::bpm);
   return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
@@ -1497,7 +1458,7 @@ struct MixResult {
 
   vector<Item> items;
   for (auto &item: items_exp) {
-    if (!item) throw std::runtime_error(item.error());
+    if (!item) throw runtime_error(item.error());
     items.push_back(std::move(*item));
   }
 
@@ -2198,13 +2159,9 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
     "Persist BPM/Beats-per-bar to trackdb",
     [&](command_args) {
       g_db.upsert(ti);
-      if (g_db.save(trackdb_path)) {
-        println(cout, "Saved to {}", trackdb_path.generic_string());
-        dirty = false;
-      } else {
-        println(cerr, "Failed to save DB to {}",
-                trackdb_path.generic_string());
-      }
+      save(g_db, trackdb_path);
+      println(cout, "Saved to {}", trackdb_path.generic_string());
+      dirty = false;
     }
   );
 
@@ -2330,7 +2287,7 @@ char** clmix_completion(const char* text, int start, int end) {
 void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
 {
   if (g_mix_tracks.empty()) {
-    throw std::runtime_error("No tracks in mix.");
+    throw runtime_error("No tracks in mix.");
   }
 
   auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
@@ -2441,7 +2398,7 @@ int main(int argc, char** argv)
 
   const path trackdb_path = argv[1];
 
-  g_db.load(trackdb_path);
+  g_db = load_database(trackdb_path);
 
   // Command-line options (after trackdb_path)
   vector<Matcher>                 opt_random_exprs;
