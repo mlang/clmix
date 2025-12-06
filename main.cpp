@@ -148,48 +148,29 @@ public:
   [[nodiscard]] T*       data()       noexcept { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept { return storage.data(); }
 
-  template<class Elem>
-  class frame_view_base {
-  protected:
-    Elem* row_;
-    size_t ch_;
-
-    frame_view_base(Elem* row, size_t ch) : row_(row), ch_(ch) {}
+  template<typename Elem>
+  class frame_view {
+    std::span<Elem> row;
 
   public:
-    [[nodiscard]] T peak() const noexcept {
-      T p = T(0);
-      for (size_t c = 0; c < ch_; ++c) {
-        T v = row_[c];
-        if constexpr (is_floating_point_v<T>) {
-          if (!std::isfinite(v)) continue;
-        }
-        v = std::abs(v);
-        if (v > p) p = v;
-      }
-      return p;
+    frame_view(Elem* row, size_t ch) : row(row, ch) {}
+
+    [[nodiscard]] T average() const noexcept {
+      return std::ranges::fold_left(row, T(0), std::plus<T>{}) / row.size();
     }
-  };
 
-  class frame_view : public frame_view_base<T> {
-  public:
-    frame_view(T* row, size_t ch) : frame_view_base<T>(row, ch) {}
+    [[nodiscard]] T peak() const noexcept {
+      return std::ranges::fold_left(
+        row | std::views::transform([](auto v) { return std::abs(v); }),
+        T(0), [](auto a, auto b) { return std::max(a, b); }
+      );
+    }
 
-    template<typename U> requires is_arithmetic_v<U>
-    frame_view& operator*=(U gain) noexcept
+    frame_view& operator*=(T gain) noexcept
     {
-      const T g = static_cast<T>(gain);
-      for (size_t c = 0; c < this->ch_; ++c)
-        this->row_[c] *= g;
+      for (T &sample: row) sample *= gain;
       return *this;
     }
-  };
-
-  class const_frame_view : public frame_view_base<const T>
-  {
-  public:
-    const_frame_view(const T* row, size_t ch)
-    : frame_view_base<const T>(row, ch) {}
   };
 
   // 2D element access via multi-arg operator[]
@@ -204,28 +185,23 @@ public:
   }
 
   // 1D frame view
-  frame_view operator[](size_t frame) noexcept
+  frame_view<T> operator[](size_t frame) noexcept
   {
     assert(frame < frames_);
-    return frame_view(storage.data() + frame * channels_, channels_);
+    return { storage.data() + frame * channels_, channels_ };
   }
-  const_frame_view operator[](size_t frame) const noexcept
+  const frame_view<const T> operator[](size_t frame) const noexcept
   {
     assert(frame < frames_);
-    return const_frame_view(storage.data() + frame * channels_, channels_);
+    return { storage.data() + frame * channels_, channels_ };
   }
 
   [[nodiscard]] T peak() const noexcept
   {
-    T p = T(0.0);
-    for (const T& s: storage) {
-      T a = std::abs(s);
-      if constexpr (is_floating_point_v<T>) {
-        if (!std::isfinite(a)) continue;
-      }
-      if (a > p) p = a;
-    }
-    return p;
+    return std::ranges::fold_left(
+      storage | std::views::transform([](auto v) { return std::abs(v); }),
+      T(0), [](auto a, auto b) { return std::max(a, b); }
+    );
   }
 
   void resize(size_t new_frames)
@@ -240,12 +216,9 @@ public:
   { storage.shrink_to_fit(); }
 
   // Scale all samples in-place by gain.
-  template<typename U>
-  requires is_arithmetic_v<U>
-  interleaved &operator*=(U gain) noexcept
+  interleaved &operator*=(T gain) noexcept
   {
-    const T g = static_cast<T>(gain);
-    for (T &s: storage) s *= g;
+    for (T &sample: storage) sample *= gain;
     return *this;
   }
 };
@@ -273,29 +246,18 @@ using ebur128_state_ptr = unique_ptr<ebur128_state, ebur128_state_deleter>;
 [[nodiscard]] expected<double, string>
 measure_lufs(const interleaved<float> &audio)
 {
-  const unsigned int  channels    = audio.channels();
-  const unsigned long sample_rate = audio.sample_rate;
-  const size_t   frames      = audio.frames();
+  ebur128_state_ptr state{
+    ebur128_init(audio.channels(), audio.sample_rate, EBUR128_MODE_I)
+  };
+  if (!state) return unexpected("measure_lufs: ebur128_init failed");
 
-  if (channels == 0 || sample_rate == 0 || frames == 0) {
-    return unexpected("measure_lufs: empty or invalid track");
-  }
-
-  ebur128_state_ptr state{ebur128_init(channels, sample_rate, EBUR128_MODE_I)};
-  if (!state) {
-    return unexpected("measure_lufs: ebur128_init failed");
-  }
-
-  if (int err = ebur128_add_frames_float(state.get(), audio.data(), frames);
-      err != EBUR128_SUCCESS) {
+  if (ebur128_add_frames_float(state.get(), audio.data(), audio.frames())
+      != EBUR128_SUCCESS)
     return unexpected("measure_lufs: ebur128_add_frames_float failed");
-  }
 
   double lufs = 0.0;
-  if (int err = ebur128_loudness_global(state.get(), &lufs);
-      err != EBUR128_SUCCESS) {
+  if (ebur128_loudness_global(state.get(), &lufs) != EBUR128_SUCCESS)
     return unexpected("measure_lufs: ebur128_loudness_global failed");
-  }
 
   return lufs;
 }
@@ -1095,15 +1057,7 @@ load_track(const path& file)
   for (size_t frame = 0; frame < total_frames; frame += hop_s) {
     for (uint_t j = 0; j < hop_s; ++j) {
       const size_t fr = frame + j;
-      float v = 0.f;
-      if (fr < total_frames) {
-        float sum = 0.f;
-        for (size_t c = 0; c < channels; ++c) {
-          sum += track[fr, c];
-        }
-        v = sum / static_cast<float>(channels);
-      }
-      inbuf->data[j] = v;
+      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
     }
     aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
   }
@@ -1193,15 +1147,7 @@ detect_onsets(const interleaved<float>& track)
   for (size_t frame = 0; frame < total_frames; frame += hop_s) {
     for (uint_t j = 0; j < hop_s; ++j) {
       const size_t fr = frame + j;
-      float v = 0.f;
-      if (fr < total_frames) {
-        float sum = 0.f;
-        for (size_t c = 0; c < channels; ++c) {
-          sum += track[fr, c];
-        }
-        v = sum / static_cast<float>(channels);
-      }
-      inbuf->data[j] = v;
+      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
     }
 
     aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
@@ -1265,15 +1211,7 @@ detect_beats(const interleaved<float>& track)
     // Downmix to mono into inbuf
     for (uint_t j = 0; j < hop_s; ++j) {
       const size_t fr = frame + j;
-      float v = 0.f;
-      if (fr < total_frames) {
-        float sum = 0.f;
-        for (size_t c = 0; c < channels; ++c) {
-          sum += track[fr, c];
-        }
-        v = sum / static_cast<float>(channels);
-      }
-      inbuf->data[j] = v;
+      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
     }
 
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
@@ -1309,11 +1247,9 @@ struct BeatGridMatch {
 };
 
 [[nodiscard]] BeatGridMatch
-match_beats(const track_info& ti,
-            const interleaved<float>& track,
-            TransientMethod method,
-            double window_sec = 0.05) // +/- 50 ms
-{
+match_beats(const track_info& ti, const interleaved<float>& track,
+  TransientMethod method, double window_sec = 0.05
+) {
   BeatGridMatch out;
   if (ti.cue_bars.size() < 2) return out; // need at least first & last cue bar
 
@@ -1328,10 +1264,8 @@ match_beats(const track_info& ti,
   if (first_bar >= last_bar) return out;
 
   // Detect transients according to method (exceptions propagate to caller)
-  vector<double> onsetTimes =
-    (method == TransientMethod::Beats)
-      ? detect_beats(track)
-      : detect_onsets(track);
+  vector<double> onsetTimes = (method == TransientMethod::Beats)
+    ? detect_beats(track) : detect_onsets(track);
 
   // Sanity check: enough transients overall
   if (onsetTimes.size() < 4) {
