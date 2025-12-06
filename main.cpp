@@ -2309,64 +2309,42 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   }
 }
 
-// Helper: export current mix (based on g_mix_tracks) to a file.
-bool export_current_mix(const path& out_path,
-                        std::optional<double> force_bpm = std::nullopt)
+void export_current_mix(const path& out_path,
+  std::optional<double> force_bpm = std::nullopt
+)
 {
-  if (g_mix_tracks.empty()) {
-    println(cerr, "No tracks in mix.");
-    return false;
-  }
+  assert(g_mix_tracks.empty() == false);
 
-  try {
-    // Stop playback to avoid concurrent access while rendering/exporting
-    g_player.playing.store(false);
-    // Release any existing mix from the player to avoid holding two copies in RAM
-    g_player.track.reset();
+  auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
+  double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
-    auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
-    double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
+  // Rebuild a fresh mix with current BPM and tracks, best quality SRC
+  MixResult mix = build_mix(
+    tracks, bpm, g_device_rate, g_device_channels, SRC_SINC_BEST_QUALITY
+  );
 
-    // Rebuild a fresh mix with current BPM and tracks, best quality SRC
-    MixResult mix = build_mix(
-      tracks, bpm, g_device_rate, g_device_channels,
-      SRC_SINC_BEST_QUALITY
-    );
-    auto& audio = mix.audio;
+  if (!in_range<sf_count_t>(mix.audio.frames()))
+    throw runtime_error("frame count too large for libsndfile");
 
-    if (!in_range<sf_count_t>(audio.frames())) {
-      println(cerr, "Export failed: frame count too large for libsndfile.");
-      return false;
-    }
-    const auto frames = static_cast<sf_count_t>(audio.frames());
+  const auto frames = static_cast<sf_count_t>(mix.audio.frames());
 
-    SndfileHandle sf(out_path.string(),
-                     SFM_WRITE,
-                     SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-                     static_cast<int>(audio.channels()),
-                     static_cast<int>(audio.sample_rate));
-    if (sf.error() != SF_ERR_NO_ERROR) {
-      println(cerr, "{}: {}", out_path.generic_string(), sf.strError());
-      return false;
-    }
+  SndfileHandle sf(out_path.string(),
+                   SFM_WRITE,
+                   SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+                   static_cast<int>(mix.audio.channels()),
+                   static_cast<int>(mix.audio.sample_rate));
 
-    const sf_count_t written = sf.writef(audio.data(), frames);
-    if (written != frames) {
-      println(cerr, "Short write: wrote {} of {} frames",
-              written, frames);
-      return false;
-    }
+  if (sf.error() != SF_ERR_NO_ERROR) throw runtime_error(sf.strError());
 
-    println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
-                 frames, audio.sample_rate, audio.channels(),
-                 out_path.generic_string()
+  const sf_count_t written = sf.writef(mix.audio.data(), frames);
+  if (written != frames)
+    throw runtime_error(
+      std::format("Short write: wrote {} of {} frames", written, frames)
     );
 
-    return true;
-  } catch (const std::exception& e) {
-    println(cerr, "Export failed: {}", e.what());
-    return false;
-  }
+  println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
+          frames, mix.audio.sample_rate, mix.audio.channels(),
+          out_path.generic_string());
 }
 
 }
@@ -2467,10 +2445,14 @@ int main(int argc, char** argv)
   if (opt_export_path) {
     if (g_mix_tracks.empty()) {
       println(cerr, "No tracks in mix.");
-      return 1;
+      return EXIT_FAILURE;
     }
-    bool ok = export_current_mix(*opt_export_path, opt_bpm);
-    return ok ? 0 : 1;
+    try {
+      export_current_mix(*opt_export_path, opt_bpm);
+    } catch (std::exception &e) {
+      println(cerr, "{}", e.what());
+      return EXIT_FAILURE;
+    }
   }
 
   // Interactive mode from here on: needs audio device and REPL.
@@ -2853,7 +2835,12 @@ int main(int argc, char** argv)
           return;
         }
 
-        (void)export_current_mix(a[0]);
+	// Stop playback to avoid concurrent access while rendering/exporting
+	g_player.playing.store(false);
+	// Release any existing mix from the player to avoid holding two copies in RAM
+	g_player.track.reset();
+
+        export_current_mix(a[0]);
       }
     );
 
