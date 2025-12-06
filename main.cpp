@@ -218,6 +218,27 @@ public:
   }
 };
 
+void write_wav(interleaved<float> const &audio, path const &out_path)
+{
+  if (!in_range<sf_count_t>(audio.frames()))
+    throw runtime_error("frame count too large for libsndfile");
+
+  const auto frames = sf_count_t(audio.frames());
+
+  SndfileHandle sf(out_path.string(), SFM_WRITE,
+    SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+    int(audio.channels()), int(audio.sample_rate)
+  );
+
+  if (sf.error() != SF_ERR_NO_ERROR) throw runtime_error(sf.strError());
+
+  const sf_count_t written = sf.writef(audio.data(), frames);
+  if (written != frames)
+    throw runtime_error(
+      std::format("Short write: wrote {} of {} frames", written, frames)
+    );
+}
+
 template<floating_point T>
 void ensure_headroom(interleaved<T> &audio, T headroom_dB)
 {
@@ -2323,26 +2344,10 @@ void export_current_mix(const path& out_path,
     tracks, bpm, g_device_rate, g_device_channels, SRC_SINC_BEST_QUALITY
   );
 
-  if (!in_range<sf_count_t>(mix.audio.frames()))
-    throw runtime_error("frame count too large for libsndfile");
-
-  const auto frames = static_cast<sf_count_t>(mix.audio.frames());
-
-  SndfileHandle sf(out_path.string(), SFM_WRITE,
-    SF_FORMAT_WAV | SF_FORMAT_PCM_24,
-    int(mix.audio.channels()), int(mix.audio.sample_rate)
-  );
-
-  if (sf.error() != SF_ERR_NO_ERROR) throw runtime_error(sf.strError());
-
-  const sf_count_t written = sf.writef(mix.audio.data(), frames);
-  if (written != frames)
-    throw runtime_error(
-      std::format("Short write: wrote {} of {} frames", written, frames)
-    );
+  write_wav(mix.audio, out_path);
 
   println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
-          frames, mix.audio.sample_rate, mix.audio.channels(),
+          mix.audio.frames(), mix.audio.sample_rate, mix.audio.channels(),
           out_path.generic_string());
 }
 
