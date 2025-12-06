@@ -264,11 +264,8 @@ measure_lufs(const interleaved<float> &audio)
 }
 
 [[nodiscard]] expected<interleaved<float>, string>
-change_tempo(
-  const interleaved<float>& in,
-  double from_bpm, double to_bpm,
-  uint32_t to_rate,
-  int src_type
+change_tempo(const interleaved<float>& in,
+  double from_bpm, double to_bpm, uint32_t to_rate, int src_type
 ) {
   const size_t channels     = in.channels();
   const size_t in_frames_sz = in.frames();
@@ -292,9 +289,7 @@ change_tempo(
   // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
   // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
   // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
-  const double ratio =
-      (static_cast<double>(to_rate) / static_cast<double>(in.sample_rate)) *
-      (from_bpm / to_bpm);
+  const auto ratio = (double(to_rate)/double(in.sample_rate))*(from_bpm/to_bpm);
 
   // With valid inputs, ratio must be finite and > 0.
   assert(ratio > 0.0);
@@ -320,31 +315,30 @@ change_tempo(
 
   interleaved<float> out(to_rate, channels, static_cast<size_t>(out_frames_est));
 
-  SRC_DATA data{};
-  data.data_in       = in.data();
-  data.data_out      = out.data();
-  data.input_frames  = in_frames;
-  data.output_frames = out_frames_est;
-  data.end_of_input  = 1;
-  data.src_ratio     = ratio;
+  SRC_DATA data{
+    .data_in       = in.data(),
+    .data_out      = out.data(),
+    .input_frames  = in_frames,
+    .output_frames = out_frames_est,
+    .end_of_input  = 1,
+    .src_ratio     = ratio
+  };
 
   if (const int err = src_simple(&data, src_type, ch); err != 0)
     return unexpected(src_strerror(err));
 
-  out.resize(static_cast<size_t>(data.output_frames_gen));
+  out.resize(data.output_frames_gen);
 
   return out;
 }
 
 // Fade curve for envelopes / crossfades.
-enum class fade_curve {
-  Linear,
-  Sine,  // sine-shaped equal-power style fade
-};
+enum class fade_curve { Linear, Sine };
 
 // Map a normalized 0..1 parameter to a gain using the chosen curve.
 // For fade_curve::Sine we use a sine-shaped equal-power style curve.
-[[nodiscard]] inline float apply_fade_curve(fade_curve curve, double x) noexcept {
+[[nodiscard]] inline float apply_fade_curve(fade_curve curve, double x) noexcept
+{
   x = std::clamp(x, 0.0, 1.0);
   switch (curve) {
     case fade_curve::Linear:
@@ -361,10 +355,8 @@ enum class fade_curve {
 // Piecewise fade: fade-in from start->first_cue, unity between [first_cue,last_cue],
 // fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
 [[nodiscard]] inline float fade_for_frame(
-  size_t frameIndex,
-  size_t total_frames,
-  double first_cue,
-  double last_cue,
+  size_t frameIndex, size_t total_frames,
+  double first_cue, double last_cue,
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
@@ -889,14 +881,14 @@ uint32_t g_device_channels = 2;
 
 vector<path> g_mix_tracks;
 
-struct MixCue {
+struct mix_cue {
   double frame;                 // absolute cue frame in mix timeline
   long   bar;                   // 1-based global bar number in the mix
   path track;  // which track this cue comes from
   int    local_bar;             // bar number within that track (1-based)
 };
 
-vector<MixCue> g_mix_cues;
+vector<mix_cue> g_mix_cues;
 
 unsigned g_mix_bpb = 4;
 double g_mix_bpm = 120.0;
@@ -1376,7 +1368,7 @@ struct MixResult {
   interleaved<float> audio;
   double bpm = 0.0;
   unsigned bpb = 4;
-  vector<MixCue> cues;
+  vector<mix_cue> cues;
 };
 
 // Build a rendered mix as a single Track at given sample_rate/channels.
@@ -1529,7 +1521,7 @@ struct MixResult {
         std::floor(beatsFromZero / static_cast<double>(result.bpb))
       ) + 1;
 
-      result.cues.push_back(MixCue{
+      result.cues.push_back(mix_cue{
         mixFrame,
         barIdx,
         it.info.filename,
@@ -1539,12 +1531,12 @@ struct MixResult {
   }
 
   std::stable_sort(result.cues.begin(), result.cues.end(),
-                   [](const MixCue& a, const MixCue& b) {
+                   [](const mix_cue& a, const mix_cue& b) {
                      return a.bar < b.bar;
                    });
 
   {
-    vector<MixCue> deduped;
+    vector<mix_cue> deduped;
     deduped.reserve(result.cues.size());
 
     size_t i = 0;
