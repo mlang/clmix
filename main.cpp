@@ -792,7 +792,7 @@ struct track_database {
 
 track_database load_database(const path& dbfile)
 {
-  std::ifstream in(dbfile);
+  std::ifstream in;
   in.exceptions(std::ifstream::failbit | std::ifstream::badbit);
   in.open(dbfile);
 
@@ -2835,13 +2835,9 @@ int main(int argc, char** argv)
           println(cout, "  {}. {}",
                        i + 1, g_mix_tracks[i].generic_string());
         }
-        try {
-          rebuild_mix_into_player(std::nullopt);
-          println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
-                  g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
-        } catch (const std::exception& e) {
-          println(cerr, "Failed to build random mix: {}", e.what());
-        }
+        rebuild_mix_into_player(std::nullopt);
+        println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
+                g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
       }
     );
 
