@@ -1394,7 +1394,7 @@ compute_bpm_offset_correction(const track_info& ti,
   tracks.reserve(files.size());
   for (auto const& file : files) {
     auto* info = g_db.find(file);
-    if (!info || info->cue_bars.empty()) {
+    if (!info || !info->cue_bars.empty() == false) {
       throw std::runtime_error(
         "Track missing in DB or has no cues: " + file.generic_string()
       );
@@ -1418,27 +1418,14 @@ struct MixResult {
 // unity between cues, fade-out from last cue->end. Accumulates global cue frames.
 // 'bpm' is the mix BPM to use (no defaulting inside).
 [[nodiscard]] MixResult build_mix(
-  const vector<path>& files,
+  const vector<track_info>& tracks,
   double bpm,
   uint32_t sample_rate,
   uint32_t channels,
   int src_type = SRC_LINEAR
 ) {
   MixResult result{};
-  if (files.empty()) return result;
-
-  // Collect track_info and ensure cues exist
-  vector<track_info> tracks;
-  tracks.reserve(files.size());
-  for (auto const& file : files) {
-    auto* info = g_db.find(file);
-    if (!info || info->cue_bars.empty()) {
-      throw std::runtime_error(
-        "Track missing in DB or has no cues: " + file.generic_string()
-      );
-    }
-    tracks.push_back(*info);
-  }
+  if (tracks.empty()) return result;
 
   result.bpm = bpm;
   result.bpb = tracks.front().beats_per_bar;
@@ -1457,7 +1444,7 @@ struct MixResult {
     double lufs;
     double offset = 0.0;
   };
-  vector<expected<Item, string>> items_exp(files.size());
+  vector<expected<Item, string>> items_exp(tracks.size());
 
   // Parallel per-track processing
   std::transform(std::execution::par, tracks.begin(), tracks.end(), items_exp.begin(),
@@ -2346,8 +2333,20 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
   g_player.playing.store(false);
   g_player.track.reset();
 
+  vector<track_info> tracks;
+  tracks.reserve(g_mix_tracks.size());
+  for (auto const& file : g_mix_tracks) {
+    auto* info = g_db.find(file);
+    if (!info || info->cue_bars.empty()) {
+      throw std::runtime_error(
+        "Track missing in DB or has no cues: " + file.generic_string()
+      );
+    }
+    tracks.push_back(*info);
+  }
+
   MixResult mix = build_mix(
-    g_mix_tracks, bpm, g_device_rate, g_device_channels
+    tracks, bpm, g_device_rate, g_device_channels
   );
 
   g_player.track = std::make_shared<interleaved<float>>(std::move(mix.audio));
@@ -2390,9 +2389,21 @@ bool export_current_mix(const path& out_path,
 
     double bpm = force_bpm.value_or(compute_default_mix_bpm(g_mix_tracks));
 
+    vector<track_info> tracks;
+    tracks.reserve(g_mix_tracks.size());
+    for (auto const& file : g_mix_tracks) {
+      auto* info = g_db.find(file);
+      if (!info || info->cue_bars.empty()) {
+        throw std::runtime_error(
+          "Track missing in DB or has no cues: " + file.generic_string()
+        );
+      }
+      tracks.push_back(*info);
+    }
+
     // Rebuild a fresh mix with current BPM and tracks, best quality SRC
     MixResult mix = build_mix(
-      g_mix_tracks, bpm, g_device_rate, g_device_channels,
+      tracks, bpm, g_device_rate, g_device_channels,
       SRC_SINC_BEST_QUALITY
     );
     auto& audio = mix.audio;
