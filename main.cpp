@@ -1027,6 +1027,10 @@ load_track(const path& file)
   return track;
 }
 
+using aubio_tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
+using aubio_onset_ptr = unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
+using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
+
 [[nodiscard]] float detect_bpm(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
@@ -1037,13 +1041,10 @@ load_track(const path& file)
   const uint_t hop_s = 512;
   const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
-  using tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
-  using fvec_ptr  = unique_ptr<fvec_t,        decltype(&del_fvec)>;
-
-  tempo_ptr tempo{ new_aubio_tempo((char*)"default", win_s, hop_s, samplerate), &del_aubio_tempo };
-  if (!tempo) {
-    throw std::runtime_error("aubio: failed to create tempo object");
-  }
+  aubio_tempo_ptr tempo{
+    new_aubio_tempo("default", win_s, hop_s, samplerate), &del_aubio_tempo
+  };
+  if (!tempo) throw std::runtime_error("aubio: failed to create tempo object");
 
   fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
   fvec_ptr out{ new_fvec(1), &del_fvec };
@@ -1124,14 +1125,12 @@ detect_onsets(const interleaved<float>& track)
   const uint_t hop_s = 512;
   const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
-  using onset_ptr = std::unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
   using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
-  onset_ptr onset{ new_aubio_onset("hfc", win_s, hop_s, samplerate),
-                   &del_aubio_onset };
-  if (!onset) {
-    throw std::runtime_error("aubio: failed to create onset object");
-  }
+  aubio_onset_ptr onset{
+    new_aubio_onset("hfc", win_s, hop_s, samplerate), &del_aubio_onset
+  };
+  if (!onset) throw std::runtime_error("aubio: failed to create onset object");
 
   fvec_ptr inbuf{ new_fvec(hop_s), &del_fvec };
   fvec_ptr outbuf{ new_fvec(1), &del_fvec };
@@ -1177,25 +1176,15 @@ detect_onsets(const interleaved<float>& track)
 [[nodiscard]] vector<double>
 detect_beats(const interleaved<float>& track)
 {
-  if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
-    throw std::invalid_argument("detect_beats: invalid or empty track");
-  }
-
   const uint_t win_s = 1024;
   const uint_t hop_s = 512;
   const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
-  using tempo_ptr = std::unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
-  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+  aubio_tempo_ptr tempo{
+    new_aubio_tempo("default", win_s, hop_s, samplerate), &del_aubio_tempo
+  };
+  if (!tempo) throw std::runtime_error("aubio: failed to create tempo object");
 
-  // Use aubio's default tempo method, as in aubiotrack.c
-  tempo_ptr tempo{ new_aubio_tempo((char*)"default", win_s, hop_s, samplerate),
-                   &del_aubio_tempo };
-  if (!tempo) {
-    throw std::runtime_error("aubio: failed to create tempo object");
-  }
-
-  // aubiotrack uses a 2-sample output vector; we only need index 0.
   fvec_ptr tempo_out{ new_fvec(2), &del_fvec };
   fvec_ptr inbuf    { new_fvec(hop_s), &del_fvec };
   if (!inbuf || !tempo_out) {
