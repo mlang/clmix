@@ -2562,6 +2562,68 @@ int main(int argc, char** argv)
       }
     );
 
+    repl.register_command("move",
+      "move <from> <to> - move track at index <from> to position <to> in mix (1-based)",
+      [&](command_args a) {
+        if (a.size() != 2) {
+          println(cerr, "Usage: move <from> <to>");
+          return;
+        }
+        if (g_mix_tracks.empty()) {
+          println(cerr, "No tracks in mix.");
+          return;
+        }
+
+        auto fromIdx = parse_number<int>(a[0]);
+        auto toIdx   = parse_number<int>(a[1]);
+        if (!fromIdx) {
+          println(cerr, "Invalid <from> index: {}", fromIdx.error());
+          return;
+        }
+        if (!toIdx) {
+          println(cerr, "Invalid <to> index: {}", toIdx.error());
+          return;
+        }
+
+        int n = static_cast<int>(g_mix_tracks.size());
+        int from = *fromIdx;
+        int to   = *toIdx;
+
+        if (from < 1 || from > n || to < 1 || to > n) {
+          println(cerr, "Indices must be between 1 and {}.", n);
+          return;
+        }
+
+        // Convert to 0-based
+        size_t fromPos = static_cast<size_t>(from - 1);
+        size_t toPos   = static_cast<size_t>(to   - 1);
+
+        if (fromPos == toPos) {
+          println(cout, "No change (from == to).");
+          return;
+        }
+
+        // Move element: erase+insert
+        path tmp = g_mix_tracks[fromPos];
+        g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(fromPos));
+
+        // After erase, if we removed an earlier element, the target index shifts left by 1
+        if (fromPos < toPos) {
+          --toPos;
+        }
+
+        g_mix_tracks.insert(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
+
+        try {
+          rebuild_mix_into_player(std::nullopt);
+          println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
+                  from, to, g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+        } catch (const std::exception& e) {
+          println(cerr, "Failed to rebuild mix: {}", e.what());
+        }
+      }
+    );
+
     repl.register_command("bpm",
       "bpm [value] - show/set mix BPM (recomputes mix)",
       [&](command_args a) {
