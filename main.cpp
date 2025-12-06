@@ -218,7 +218,7 @@ public:
   }
 };
 
-void write_wav(interleaved<float> const &audio, path const &out_path)
+inline void write_wav(interleaved<float> const &audio, path const &out_path)
 {
   if (!in_range<sf_count_t>(audio.frames()))
     throw runtime_error("frame count too large for libsndfile");
