@@ -2879,10 +2879,9 @@ int main(int argc, char** argv)
         }
 
         println(cout, "Track order:");
-        for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-          println(cout, "  {}. {}",
-                       i + 1, g_mix_tracks[i].generic_string());
-        }
+        for (auto [index, file]: std::views::enumerate(g_mix_tracks))
+          println(cout, "  {}. {}", index + 1, file.generic_string());
+        
         rebuild_mix_into_player(std::nullopt);
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
                 g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
