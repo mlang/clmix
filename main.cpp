@@ -2457,6 +2457,8 @@ int main(int argc, char** argv)
       println(cerr, "{}", e.what());
       return EXIT_FAILURE;
     }
+
+    return EXIT_SUCCESS;
   }
 
   // Interactive mode from here on: needs audio device and REPL.
