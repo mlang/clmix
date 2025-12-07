@@ -1051,14 +1051,10 @@ using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
     throw runtime_error("aubio: failed to allocate buffers");
   }
 
-  const size_t channels = track.channels();
-  const size_t total_frames = track.frames();
-
-  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
-  for (size_t start = 0; start < total_frames; start += hop_s) {
-    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
-      const auto frame = start + offset;
-      return frame < total_frames ? track[frame].average() : 0.0f;
+  for (size_t start = 0; start < track.frames(); start += hop_s) {
+    auto frames = std::views::iota(start, start + hop_s);
+    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
+      return frame < track.frames() ? track[frame].average() : 0.0f;
     });
     aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
   }
@@ -1136,16 +1132,12 @@ detect_onsets(const interleaved<float>& track)
     throw runtime_error("aubio: failed to allocate onset buffers");
   }
 
-  const size_t channels = track.channels();
-  const size_t total_frames = track.frames();
-
   vector<double> result;
 
-  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
-  for (size_t start = 0; start < total_frames; start += hop_s) {
-    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
-      const auto frame = start + offset;
-      return frame < total_frames ? track[frame].average() : 0.0f;
+  for (size_t start = 0; start < track.frames(); start += hop_s) {
+    auto frames = std::views::iota(start, start + hop_s);
+    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
+      return frame < track.frames() ? track[frame].average() : 0.0f;
     });
 
     aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
@@ -1157,7 +1149,7 @@ detect_onsets(const interleaved<float>& track)
       if (t_sec >= 0.0f) {
         const double t = static_cast<double>(t_sec);
         const double track_len_sec =
-          static_cast<double>(total_frames) / static_cast<double>(samplerate);
+          static_cast<double>(track.frames()) / static_cast<double>(samplerate);
         if (t >= 0.0 && t <= track_len_sec) {
           result.push_back(t);
         }
@@ -1190,16 +1182,12 @@ detect_beats(const interleaved<float>& track)
     throw runtime_error("aubio: failed to allocate tempo buffers");
   }
 
-  const size_t channels     = track.channels();
-  const size_t total_frames = track.frames();
-
   vector<double> result;
 
-  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
-  for (size_t start = 0; start < total_frames; start += hop_s) {
-    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
-      const auto frame = start + offset;
-      return frame < total_frames ? track[frame].average() : 0.0f;
+  for (size_t start = 0; start < track.frames(); start += hop_s) {
+    auto frames = std::views::iota(start, start + hop_s);
+    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
+      return frame < track.frames() ? track[frame].average() : 0.0f;
     });
 
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
@@ -1211,7 +1199,7 @@ detect_beats(const interleaved<float>& track)
       if (t_sec >= 0.0f) {
         const double t = static_cast<double>(t_sec);
         const double track_len_sec =
-          static_cast<double>(total_frames) / static_cast<double>(samplerate);
+          static_cast<double>(track.frames()) / static_cast<double>(samplerate);
         if (t >= 0.0 && t <= track_len_sec) {
           result.push_back(t);
         }
