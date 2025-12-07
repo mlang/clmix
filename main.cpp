@@ -371,8 +371,7 @@ enum class fade_curve { Linear, Sine };
 // optional fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
 [[nodiscard]] inline float fade_for_frame(
   size_t frameIndex, size_t total_frames,
-  std::optional<double> first_cue,
-  std::optional<double> last_cue,
+  std::optional<double> first_cue, std::optional<double> last_cue,
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
@@ -1521,14 +1520,8 @@ struct MixResult {
     std::optional<double> fade_in_cue;
     std::optional<double> fade_out_cue;
 
-    if (items.size() == 1) {
-      // Single-track mix: no fade at all
-      fade_in_cue  = std::nullopt;
-      fade_out_cue = std::nullopt;
-    } else {
-      if (!is_first) fade_in_cue  = it.first_cue; // no fade-in on first track
-      if (!is_last)  fade_out_cue = it.last_cue;  // no fade-out on last track
-    }
+    if (!is_first) fade_in_cue  = it.first_cue; // no fade-in on first track
+    if (!is_last)  fade_out_cue = it.last_cue;  // no fade-out on last track
 
     for (size_t f = 0; f < it.audio.frames(); ++f) {
       double absF = it.offset + static_cast<double>(f);
