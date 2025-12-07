@@ -2377,21 +2377,22 @@ void export_current_mix(const path& out_path,
           out_path.generic_string());
 }
 
-// Apply intro/outro constraints to g_mix_tracks: pick a random intro candidate
-// and move it to the front; pick a random outro candidate and move it to the end.
-void apply_intro_outro_constraints(std::mt19937& rng)
+// Apply intro/outro constraints to a group of tracks: pick a random intro
+// candidate and move it to the front; pick a random outro candidate and move
+// it to the end. Operates only on the given group.
+void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
 {
-  if (g_mix_tracks.empty()) return;
+  if (group.empty()) return;
 
   auto get_ti = [&](const path& p) -> const track_info* {
     return g_db.find(p);
   };
 
-  // Intro candidates
+  // Intro candidates within this group
   std::vector<size_t> intro_indices;
-  intro_indices.reserve(g_mix_tracks.size());
-  for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-    if (auto* ti = get_ti(g_mix_tracks[i])) {
+  intro_indices.reserve(group.size());
+  for (size_t i = 0; i < group.size(); ++i) {
+    if (auto* ti = get_ti(group[i])) {
       if (g_intro_matcher(*ti)) {
         intro_indices.push_back(i);
       }
@@ -2402,17 +2403,17 @@ void apply_intro_outro_constraints(std::mt19937& rng)
     std::uniform_int_distribution<size_t> dist(0, intro_indices.size() - 1);
     size_t pick = intro_indices[dist(rng)];
     if (pick != 0) {
-      path tmp = g_mix_tracks[pick];
-      g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(pick));
-      g_mix_tracks.insert(g_mix_tracks.begin(), std::move(tmp));
+      path tmp = group[pick];
+      group.erase(group.begin() + static_cast<std::ptrdiff_t>(pick));
+      group.insert(group.begin(), std::move(tmp));
     }
   }
 
   // Outro candidates (recompute after possible intro move)
   std::vector<size_t> outro_indices;
-  outro_indices.reserve(g_mix_tracks.size());
-  for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
-    if (auto* ti = get_ti(g_mix_tracks[i])) {
+  outro_indices.reserve(group.size());
+  for (size_t i = 0; i < group.size(); ++i) {
+    if (auto* ti = get_ti(group[i])) {
       if (g_outro_matcher(*ti)) {
         outro_indices.push_back(i);
       }
@@ -2422,11 +2423,11 @@ void apply_intro_outro_constraints(std::mt19937& rng)
   if (!outro_indices.empty()) {
     std::uniform_int_distribution<size_t> dist(0, outro_indices.size() - 1);
     size_t pick = outro_indices[dist(rng)];
-    size_t last = g_mix_tracks.size() - 1;
+    size_t last = group.size() - 1;
     if (pick != last) {
-      path tmp = g_mix_tracks[pick];
-      g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(pick));
-      g_mix_tracks.push_back(std::move(tmp));
+      path tmp = group[pick];
+      group.erase(group.begin() + static_cast<std::ptrdiff_t>(pick));
+      group.push_back(std::move(tmp));
     }
   }
 }
@@ -2538,11 +2539,9 @@ int main(int argc, char** argv)
       }
 
       std::shuffle(group.begin(), group.end(), rng);
+      apply_intro_outro_constraints(group, rng);
       std::ranges::move(group, std::back_inserter(g_mix_tracks));
     }
-
-    // Apply intro/outro constraints on the resulting mix
-    apply_intro_outro_constraints(rng);
   }
 
   // Non-interactive export mode
@@ -2619,7 +2618,7 @@ int main(int argc, char** argv)
         for (size_t i = 0; i < args.size(); ++i) {
           if (i) cout << ' ';
           cout << args[i];
-        }
+          }
         cout << "\n";
       }
     );
@@ -2948,6 +2947,7 @@ int main(int argc, char** argv)
             return false;
           }
           std::shuffle(group.begin(), group.end(), rng);
+          apply_intro_outro_constraints(group, rng);
           std::ranges::move(group, std::back_inserter(g_mix_tracks));
           return true;
         };
@@ -2972,9 +2972,6 @@ int main(int argc, char** argv)
             }
           }
         }
-
-        // Apply intro/outro constraints on the resulting mix
-        apply_intro_outro_constraints(rng);
 
         println(cout, "Track order:");
         for (auto [index, file]: std::views::enumerate(g_mix_tracks))
