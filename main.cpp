@@ -2384,15 +2384,11 @@ void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
 {
   if (group.empty()) return;
 
-  auto get_ti = [&](const path& p) -> const track_info* {
-    return g_db.find(p);
-  };
-
   // Intro candidates within this group
   std::vector<size_t> intro_indices;
   intro_indices.reserve(group.size());
   for (size_t i = 0; i < group.size(); ++i) {
-    if (auto* ti = get_ti(group[i])) {
+    if (auto* ti = g_db.find(group[i])) {
       if (g_intro_matcher(*ti)) {
         intro_indices.push_back(i);
       }
@@ -2413,7 +2409,7 @@ void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
   std::vector<size_t> outro_indices;
   outro_indices.reserve(group.size());
   for (size_t i = 0; i < group.size(); ++i) {
-    if (auto* ti = get_ti(group[i])) {
+    if (auto* ti = g_db.find(group[i])) {
       if (g_outro_matcher(*ti)) {
         outro_indices.push_back(i);
       }
