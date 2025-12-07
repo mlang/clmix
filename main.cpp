@@ -1044,17 +1044,16 @@ using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
   const size_t channels = track.channels();
   const size_t total_frames = track.frames();
 
-  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
-    for (uint_t j = 0; j < hop_s; ++j) {
-      const size_t fr = frame + j;
-      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
-    }
+  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
+  for (size_t start = 0; start < total_frames; start += hop_s) {
+    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
+      const auto frame = start + offset;
+      return frame < total_frames ? track[frame].average() : 0.0f;
+    });
     aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
   }
 
-  const float bpm = aubio_tempo_get_bpm(tempo.get());
-
-  return bpm;
+  return aubio_tempo_get_bpm(tempo.get());
 }
 
 void apply_two_pass_limiter_db(interleaved<float>& buf,
@@ -1132,11 +1131,12 @@ detect_onsets(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
-    for (uint_t j = 0; j < hop_s; ++j) {
-      const size_t fr = frame + j;
-      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
-    }
+  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
+  for (size_t start = 0; start < total_frames; start += hop_s) {
+    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
+      const auto frame = start + offset;
+      return frame < total_frames ? track[frame].average() : 0.0f;
+    });
 
     aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
 
@@ -1185,12 +1185,12 @@ detect_beats(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t frame = 0; frame < total_frames; frame += hop_s) {
-    // Downmix to mono into inbuf
-    for (uint_t j = 0; j < hop_s; ++j) {
-      const size_t fr = frame + j;
-      inbuf->data[j] = fr < total_frames ? track[fr].average() : 0.0f;
-    }
+  constexpr auto hop = std::views::iota(uint_t(0), hop_s);
+  for (size_t start = 0; start < total_frames; start += hop_s) {
+    std::ranges::transform(hop, inbuf->data, [&](uint_t offset) {
+      const auto frame = start + offset;
+      return frame < total_frames ? track[frame].average() : 0.0f;
+    });
 
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
 
