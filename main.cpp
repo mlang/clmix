@@ -481,30 +481,20 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
   filename, beats_per_bar, bpm, upbeat_beats, time_offset_sec, cue_bars, tags
 )
 
-// Compute cue frames (in samples) for a track_info at a given sample rate.
+// Compute cue frames for a track_info at a given sample rate.
 // If bpm_override is not provided, track_info::bpm is used.
 [[nodiscard]] vector<double>
 cue_frames(track_info const& info,
   uint32_t sr, std::optional<double> bpm_override = std::nullopt
 ) {
-  assert(sr > 0);
-  vector<double> frames;
+  const auto frames_per_beat = 60.0 / bpm_override.value_or(info.bpm) * sr;
+  auto bar_to_frame =
+    [ shift = info.upbeat_beats * frames_per_beat + info.time_offset_sec * sr
+    , frames_per_bar = frames_per_beat * info.beats_per_bar
+    ](int bar) { return shift + (bar - 1) * frames_per_bar; };
 
-  if (info.cue_bars.empty()) return frames;
-
-  const auto bpm = bpm_override.value_or(info.bpm);
-  assert(bpm > 0.0);
-
-  const auto fpb = 60.0 / bpm * sr;
-  const auto shift = info.upbeat_beats * fpb + info.time_offset_sec * sr;
-
-  frames.reserve(info.cue_bars.size());
-  for (int bar: info.cue_bars) {
-    // bar is 1-based
-    frames.push_back(shift + (bar - 1) * info.beats_per_bar * fpb);
-  }
-
-  return frames;
+  return info.cue_bars | std::views::transform(bar_to_frame)
+       | std::ranges::to<vector<double>>();
 }
 
 class Matcher {
@@ -836,10 +826,12 @@ track_database load_database(const path& dbfile)
 
 void save(track_database const &database, const path& dbfile)
 {
+  auto to_json = [](const track_info &ti) { return json(ti); };
   auto tracks = json::array();
-  for (const auto& [key, ti] : database.items) {
-    tracks.push_back(json(ti));
-  }
+  std::ranges::move(
+    database.items | std::views::values | std::views::transform(to_json),
+    std::back_inserter(tracks)
+  );
 
   json root = {
     {"version", 1},
@@ -871,7 +863,7 @@ resolve_mix_tracks(const track_database &database, const vector<path>& files)
   return tracks;
 }
 
-[[nodiscard]] std::vector<path>
+[[nodiscard]] vector<path>
 match(track_database const &database, Matcher const &matcher)
 {
   auto valid = [](const track_info &ti) { return !ti.cue_bars.empty(); };
@@ -879,7 +871,7 @@ match(track_database const &database, Matcher const &matcher)
   return database.items | std::views::values | std::views::filter(valid)
        | std::views::filter(matcher)
        | std::views::transform(&track_info::filename)
-       | std::ranges::to<std::vector<path>>();
+       | std::ranges::to<vector<path>>();
 }
 
 struct player_state {
