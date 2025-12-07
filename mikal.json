@@ -188,6 +188,36 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 146.0,
+      "cue_bars": [
+        49,
+        337
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - AF303.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.004388182000436558,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 156.0,
+      "cue_bars": [
+        37,
+        245
+      ],
+      "filename": "Acidcore/Ling Ling/Ling Ling - Antagonize.flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 140.0,
       "cue_bars": [
         17,
@@ -349,6 +379,21 @@
         "acid"
       ],
       "time_offset_sec": 0.012398284962753081,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 146.0,
+      "cue_bars": [
+        19,
+        258
+      ],
+      "filename": "Acidcore/Ling Ling/Mr. Gasmask - Crooked Cooking (Ling Ling Remix).flac",
+      "tags": [
+        "LingLing",
+        "acid"
+      ],
+      "time_offset_sec": 0.025,
       "upbeat_beats": 0.0
     },
     {
@@ -787,7 +832,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.02,
+      "time_offset_sec": 0.01611416548340472,
       "upbeat_beats": 0.0
     },
     {
@@ -1151,6 +1196,7 @@
       "filename": "Psytrance/Iboga Records/Captain Hook | Iboga Records - Origin/Captain Hook & Tetrameth - Captain Hook & Tetrameth - The Ever Present Silent Observer [2337183485].mp3",
       "tags": [
         "acid",
+        "intro",
         "psy",
         "voice"
       ],
