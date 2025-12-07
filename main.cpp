@@ -367,31 +367,39 @@ enum class fade_curve { Linear, Sine };
   return static_cast<float>(x); // fallback
 }
 
-// Piecewise fade: fade-in from start->first_cue, unity between [first_cue,last_cue],
-// fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
+// Piecewise fade: optional fade-in from start->first_cue, unity between [first_cue,last_cue],
+// optional fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
 [[nodiscard]] inline float fade_for_frame(
   size_t frameIndex, size_t total_frames,
-  double first_cue, double last_cue,
+  std::optional<double> first_cue,
+  std::optional<double> last_cue,
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
   if (total_frames == 0) return 0.0f;
-  if (last_cue < first_cue) std::swap(last_cue, first_cue);
+
+  // No cues at all: no envelope, just unity
+  if (!first_cue && !last_cue) return 1.0f;
+
+  double fc = first_cue.value_or(0.0);
+  double lc = last_cue.value_or(static_cast<double>(total_frames));
+
+  if (lc < fc) std::swap(lc, fc);
 
   const double f = static_cast<double>(frameIndex);
 
-  // Fade-in region: [0, first_cue]
-  if (f <= first_cue) {
-    if (first_cue <= 0.0) return 1.0f; // degenerate: no fade-in
-    const double p = f / first_cue;    // 0..1
+  // Fade-in region: [0, fc]
+  if (first_cue && f <= fc) {
+    if (fc <= 0.0) return 1.0f; // degenerate: no fade-in
+    const double p = f / fc;    // 0..1
     return apply_fade_curve(curve, p);
   }
 
-  // Fade-out region: [last_cue, total_frames)
-  if (f >= last_cue) {
-    const double denom = static_cast<double>(total_frames) - last_cue;
+  // Fade-out region: [lc, total_frames)
+  if (last_cue && f >= lc) {
+    const double denom = static_cast<double>(total_frames) - lc;
     if (denom <= 1e-12) return 0.0f;  // degenerate: no tail
-    const double p = (f - last_cue) / denom; // 0..1
+    const double p = (f - lc) / denom; // 0..1
     // For fade-out, invert the curve: 1 - curve(p)
     return 1.0f - apply_fade_curve(curve, p);
   }
@@ -1501,17 +1509,36 @@ struct MixResult {
 
   // Mix down
   const auto outChS = static_cast<size_t>(outCh);
-  for (auto &it: items) {
+  for (size_t idx = 0; idx < items.size(); ++idx) {
+    auto &it = items[idx];
     const size_t inChS = it.audio.channels();
     const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
+
+    const bool is_first = (idx == 0);
+    const bool is_last  = (idx + 1 == items.size());
+
+    // Decide which fades to apply for this track
+    std::optional<double> fade_in_cue;
+    std::optional<double> fade_out_cue;
+
+    if (items.size() == 1) {
+      // Single-track mix: no fade at all
+      fade_in_cue  = std::nullopt;
+      fade_out_cue = std::nullopt;
+    } else {
+      if (!is_first) fade_in_cue  = it.first_cue; // no fade-in on first track
+      if (!is_last)  fade_out_cue = it.last_cue;  // no fade-out on last track
+    }
+
     for (size_t f = 0; f < it.audio.frames(); ++f) {
       double absF = it.offset + static_cast<double>(f);
       if (absF < 0.0) continue;
       auto outF = static_cast<size_t>(absF);
       if (outF >= total_frames) break;
-      const auto a = fade_for_frame(
-        f, it.audio.frames(), it.first_cue, it.last_cue, fade_curve::Sine
-      ) * gain_lin;
+      const float fade = fade_for_frame(
+        f, it.audio.frames(), fade_in_cue, fade_out_cue, fade_curve::Sine
+      );
+      const float a = fade * gain_lin;
       if (a <= 0.0f) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
@@ -1530,9 +1557,9 @@ struct MixResult {
   result.cues.clear();
   for (auto& it : items) {
     auto cueFs = cue_frames(it.info, out_rate, bpm);
-    for (size_t idx = 0; idx < cueFs.size(); ++idx) {
-      int bar = it.info.cue_bars[idx];
-      double mixFrame = it.offset + cueFs[idx];
+    for (size_t idx2 = 0; idx2 < cueFs.size(); ++idx2) {
+      int bar = it.info.cue_bars[idx2];
+      double mixFrame = it.offset + cueFs[idx2];
 
       double beatsFromZero = mixFrame / fpb;
       long barIdx = static_cast<long>(
