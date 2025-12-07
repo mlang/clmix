@@ -871,6 +871,17 @@ resolve_mix_tracks(const track_database &database, const vector<path>& files)
   return tracks;
 }
 
+[[nodiscard]] std::vector<path>
+match(track_database const &database, Matcher const &matcher)
+{
+  auto valid = [](const track_info &ti) { return !ti.cue_bars.empty(); };
+
+  return database.items | std::views::values | std::views::filter(valid)
+       | std::views::filter(matcher)
+       | std::views::transform(&track_info::filename)
+       | std::ranges::to<std::vector<path>>();
+}
+
 struct player_state {
   std::atomic<bool> playing{false};
   shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
@@ -2426,14 +2437,7 @@ int main(int argc, char** argv)
     g_mix_tracks.clear();
 
     for (const auto& matcher : opt_random_exprs) {
-      vector<path> group;
-      group.reserve(g_db.items.size());
-      for (const auto& kv : g_db.items) {
-        const track_info& ti = kv.second;
-        if (!ti.cue_bars.empty() && matcher(ti)) {
-          group.push_back(ti.filename);
-        }
-      }
+      auto group = match(g_db, matcher);
 
       if (group.empty()) {
         println(cerr, "No tracks with cues matching one of the --random expressions.");
@@ -2441,7 +2445,7 @@ int main(int argc, char** argv)
       }
 
       std::shuffle(group.begin(), group.end(), rng);
-      g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
+      std::ranges::move(group, std::back_inserter(g_mix_tracks));
     }
   }
 
@@ -2837,14 +2841,7 @@ int main(int argc, char** argv)
 
         auto append_block_for_matcher = [&](const Matcher& matcher,
                                             std::string_view desc) -> bool {
-          vector<path> group;
-          group.reserve(g_db.items.size());
-          for (const auto& kv : g_db.items) {
-            const track_info& ti = kv.second;
-            if (!ti.cue_bars.empty() && matcher(ti)) {
-              group.push_back(ti.filename);
-            }
-          }
+          auto group = match(g_db, matcher);
           if (group.empty()) {
             if (desc.empty()) {
               println(cerr, "No tracks with cues in DB.");
@@ -2855,7 +2852,7 @@ int main(int argc, char** argv)
             return false;
           }
           std::shuffle(group.begin(), group.end(), rng);
-          g_mix_tracks.insert(g_mix_tracks.end(), group.begin(), group.end());
+          std::ranges::move(group, std::back_inserter(g_mix_tracks));
           return true;
         };
 
