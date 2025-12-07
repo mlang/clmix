@@ -901,6 +901,9 @@ struct player_state {
 player_state g_player;
 track_database g_db;
 
+Matcher g_intro_matcher = Matcher::tag("intro");
+Matcher g_outro_matcher = Matcher::tag("outro");
+
 uint32_t g_device_rate = 44100;
 uint32_t g_device_channels = 2;
 
@@ -2374,6 +2377,60 @@ void export_current_mix(const path& out_path,
           out_path.generic_string());
 }
 
+// Apply intro/outro constraints to g_mix_tracks: pick a random intro candidate
+// and move it to the front; pick a random outro candidate and move it to the end.
+void apply_intro_outro_constraints(std::mt19937& rng)
+{
+  if (g_mix_tracks.empty()) return;
+
+  auto get_ti = [&](const path& p) -> const track_info* {
+    return g_db.find(p);
+  };
+
+  // Intro candidates
+  std::vector<size_t> intro_indices;
+  intro_indices.reserve(g_mix_tracks.size());
+  for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
+    if (auto* ti = get_ti(g_mix_tracks[i])) {
+      if (g_intro_matcher(*ti)) {
+        intro_indices.push_back(i);
+      }
+    }
+  }
+
+  if (!intro_indices.empty()) {
+    std::uniform_int_distribution<size_t> dist(0, intro_indices.size() - 1);
+    size_t pick = intro_indices[dist(rng)];
+    if (pick != 0) {
+      path tmp = g_mix_tracks[pick];
+      g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(pick));
+      g_mix_tracks.insert(g_mix_tracks.begin(), std::move(tmp));
+    }
+  }
+
+  // Outro candidates (recompute after possible intro move)
+  std::vector<size_t> outro_indices;
+  outro_indices.reserve(g_mix_tracks.size());
+  for (size_t i = 0; i < g_mix_tracks.size(); ++i) {
+    if (auto* ti = get_ti(g_mix_tracks[i])) {
+      if (g_outro_matcher(*ti)) {
+        outro_indices.push_back(i);
+      }
+    }
+  }
+
+  if (!outro_indices.empty()) {
+    std::uniform_int_distribution<size_t> dist(0, outro_indices.size() - 1);
+    size_t pick = outro_indices[dist(rng)];
+    size_t last = g_mix_tracks.size() - 1;
+    if (pick != last) {
+      path tmp = g_mix_tracks[pick];
+      g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(pick));
+      g_mix_tracks.push_back(std::move(tmp));
+    }
+  }
+}
+
 }
 
 int main(int argc, char** argv)
@@ -2383,7 +2440,9 @@ int main(int argc, char** argv)
             "Options:\n"
             "  --random <expr>   Build mix from random tracks matching tag/BPM expr (can be given multiple times)\n"
             "  --bpm <value>     Force mix BPM\n"
-            "  --export <file>   Render mix to 24-bit WAV and exit\n";
+            "  --export <file>   Render mix to 24-bit WAV and exit\n"
+            "  --intro <expr>    Matcher expression for intro tracks (default: tag 'intro')\n"
+            "  --outro <expr>    Matcher expression for outro tracks (default: tag 'outro')\n";
     return EXIT_FAILURE;
   }
 
@@ -2403,6 +2462,8 @@ int main(int argc, char** argv)
     {"random", required_argument, nullptr, 'r'},
     {"bpm",    required_argument, nullptr, 'b'},
     {"export", required_argument, nullptr, 'e'},
+    {"intro",  required_argument, nullptr, 'i'},
+    {"outro",  required_argument, nullptr, 'o'},
     {nullptr,  0,                 nullptr,  0 }
   };
 
@@ -2433,6 +2494,26 @@ int main(int argc, char** argv)
       case 'e':
         opt_export_path = path(optarg);
         break;
+      case 'i': {
+        try {
+          g_intro_matcher = Matcher::parse(optarg);
+        } catch (const std::exception& e) {
+          println(cerr, "Invalid --intro expression '{}': {}",
+                  optarg, e.what());
+          return EXIT_FAILURE;
+        }
+        break;
+      }
+      case 'o': {
+        try {
+          g_outro_matcher = Matcher::parse(optarg);
+        } catch (const std::exception& e) {
+          println(cerr, "Invalid --outro expression '{}': {}",
+                  optarg, e.what());
+          return EXIT_FAILURE;
+        }
+        break;
+      }
       default:
         return EXIT_FAILURE;
     }
@@ -2459,6 +2540,9 @@ int main(int argc, char** argv)
       std::shuffle(group.begin(), group.end(), rng);
       std::ranges::move(group, std::back_inserter(g_mix_tracks));
     }
+
+    // Apply intro/outro constraints on the resulting mix
+    apply_intro_outro_constraints(rng);
   }
 
   // Non-interactive export mode
@@ -2888,6 +2972,9 @@ int main(int argc, char** argv)
             }
           }
         }
+
+        // Apply intro/outro constraints on the resulting mix
+        apply_intro_outro_constraints(rng);
 
         println(cout, "Track order:");
         for (auto [index, file]: std::views::enumerate(g_mix_tracks))
