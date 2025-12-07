@@ -2441,7 +2441,7 @@ int main(int argc, char** argv)
 
       if (group.empty()) {
         println(cerr, "No tracks with cues matching one of the --random expressions.");
-        return 1;
+        return EXIT_FAILURE;
       }
 
       std::shuffle(group.begin(), group.end(), rng);
