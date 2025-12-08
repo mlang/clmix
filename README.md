@@ -1,6 +1,6 @@
 # clmix
 
-`clmix` is a command-line tool for preparing and mixing electronic music.  
+`clmix` is a command-line tool for mixing electronic music.  
 It focuses on terminal workflows instead of GUIs and assumes tempo-stable tracks
 (no tempo changes / live warping).
 
@@ -122,33 +122,18 @@ You get a REPL prompt:
 clmix>
 ```
 
+Type `help` to see commands.
 
+Typical workflow:
 
- Type `help` to see commands.
-
-
-
- Typical workflow:
-
-
-
- 1. Add tracks and annotate them via `track-info`.
-
- 2. Build a mix (e.g. `add`, `random`, `bpm`).
-
- 3. Preview with `play` / `stop` and `seek`.
-
- 4. Export to WAV with `export`.
-
-
+1. Add tracks and annotate them via `track-info`.
+2. Build a mix (e.g. `add`, `random`, `bpm`).
+3. Preview with `play` / `stop` and `seek`.
+4. Export to WAV with `export`.
 
 ---
 
-
-
 ## Per-track editing: `track-info`
-
-
 
 Use `track-info` to inspect and edit metadata for a single track:
 
@@ -156,26 +141,25 @@ Use `track-info` to inspect and edit metadata for a single track:
 clmix> track-info path/to/track.flac
 ```
 
-
-
 This opens a sub-shell:
 
 ```
 track-info>
 ```
 
-
-
 If the track is not in the DB yet:
-
-
 
 - It is loaded and analyzed.
 - BPM is guessed via aubio (if possible).
 - Default values are shown.
 
-You can then adjust:
+You can now start playback and listen if the metronome clicks are aligned:
 
+```
+clmix> play
+```
+
+You can then adjust:
 
 ### BPM and beats per bar
 
@@ -189,19 +173,11 @@ track-info> bpb          # show beats per bar
 track-info> bpb 4        # set beats per bar
 ```
 
-
-
 These define the musical grid used for cues and the metronome.
-
-
 
 ### Upbeat and time offset
 
-
-
 These align the musical grid to the audio:
-
-
 
 - `upbeat` (in beats): how many beats before bar 1 the audio starts.
 - `offset` (in seconds): additional time shift.
@@ -240,7 +216,6 @@ fitting.
 
 ### Tags
 
-
 Tags are arbitrary strings used for filtering and random selection.
 
 ```
@@ -264,13 +239,10 @@ track-info> autogrid
 track-info> autogrid 40 onsets   # window_ms=40, use onset detector
 ```
 
-
 - Uses aubio to detect beats or onsets.
 - Matches them to the theoretical grid implied by your cues and BPM.
 - Fits a straight line (beat index → time) and, if the fit is good enough,
   adjusts BPM and time offset slightly (±1% BPM limit).
-
-
 
 This is useful when your initial BPM or offset is close but not exact.
 
@@ -299,8 +271,6 @@ track-info> seek 33      # go to bar 33
 ```
 
 If playback is running, seeks are quantized to the next bar boundary.
-
-
 
 ### Volume
 
@@ -347,8 +317,6 @@ clmix> add path/to/track2.flac
 If a track is not yet in the DB, `add` will open `track-info` for it first.
 
 After adding, `clmix` rebuilds the mix:
-
-
 
 - Each track is time-stretched to the mix BPM (no pitch shift) using libsamplerate.
 - Tracks are aligned so that the last cue of track A lines up with the first cue of track B.
@@ -405,21 +373,13 @@ This controls the playback gain of the mix (not the rendered file).
 
 ## Mix cues
 
-When building a mix, `clmix` also computes global cue points:
-
-
-
-- For each track’s cue bar, it computes the corresponding frame in the mix.
-- It then converts that to a global bar index in the mix.
-
-- If multiple tracks share the same global bar, the last one wins.
+When building a mix, `clmix` also computes global cue points.
 
 You can list them:
 
 ```
 clmix> cues
 ```
-
 
 Output example:
 
@@ -429,13 +389,11 @@ mix bar 33 |  track: music/track2.flac  |  track bar 1
 ...
 ```
 
-
 This helps you understand where each track’s structure lands in the final mix.
 
 ---
 
 ## Tags and selection
-
 
 You can inspect tags across the DB:
 
@@ -444,8 +402,6 @@ clmix> tags
 ```
 
 This prints all tags and how many tracks have each.
-
-
 
 ### Listing tracks with expressions
 
@@ -457,8 +413,6 @@ clmix> list "techno & >=138bpm & <142bpm"
 
 The expression language supports:
 
-
-
 - Tag names (e.g. `techno`, `peak`)
 - Boolean operators:
   - `&` (AND)
@@ -468,17 +422,11 @@ The expression language supports:
 - BPM comparisons:
   - `<140bpm`, `<=128bpm`, `>135bpm`, `>=150bpm`, `==140bpm`
 
-
-
 Examples:
-
-
 
 - `techno & >=138bpm & <142bpm`
 - `~slow & (psy | trance)`
 - `>=140bpm | hard`
-
-
 
 ### Random mixes
 
@@ -494,8 +442,6 @@ clmix> random "techno" "trance & >=138bpm"
 
 For each expression:
 
-
-
 - All tracks with cues matching the expression are collected.
 - The group is shuffled and appended to the mix track list.
 
@@ -505,8 +451,6 @@ After `random`, the mix is rebuilt and you can `play`, `bpm`, `export`, etc.
 
 ## Exporting a mix
 
-
-
 You can export the current mix to a 24-bit WAV:
 
 ```
@@ -515,13 +459,9 @@ clmix> export out.wav
 
 This:
 
-
-
 - Rebuilds the mix offline at current device rate and channel count.
 - Uses highest-quality resampling (`SRC_SINC_BEST_QUALITY`).
 - Writes a 24-bit WAV via libsndfile.
-
-
 
 You can also run in non-interactive export mode:
 
@@ -531,14 +471,12 @@ You can also run in non-interactive export mode:
 
 Options:
 
-
 - `--random <expr>`: same expression language as `random` command.
   Can be given multiple times.
 - `--bpm <value>`: force mix BPM.
 - `--export <file>`: render and exit (no REPL).
 
 ---
-
 
 ## Notes
 
