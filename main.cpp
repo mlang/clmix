@@ -1031,13 +1031,15 @@ using aubio_tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
 using aubio_onset_ptr = unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
 using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
-inline void
-downmix_to_fvec(interleaved<float> const &audio, size_t offset, fvec_t *buffer)
+template<typename F> void
+downmix_chunks(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 {
-  const auto downmix = std::ranges::transform(
-    std::views::iota(offset, std::min(offset + buffer->length, audio.frames())),
-    buffer->data, [&audio](size_t frame) { return audio[frame].average(); });
-  std::fill(downmix.out, buffer->data + buffer->length, smpl_t(0));
+  auto mono = [&audio](size_t frame) { return audio[frame].average(); };
+  for (auto frames: std::views::chunk(std::views::iota(size_t(0), audio.frames()), buffer->length)) {
+    smpl_t *tail = std::ranges::transform(frames, buffer->data, mono).out;
+    std::fill(tail, buffer->data + buffer->length, smpl_t(0));
+    f(buffer);
+  }
 }
 
 [[nodiscard]] float detect_bpm(const interleaved<float>& track)
@@ -1048,7 +1050,7 @@ downmix_to_fvec(interleaved<float> const &audio, size_t offset, fvec_t *buffer)
 
   const uint_t win_s = 1024;
   const uint_t hop_s = 512;
-  const auto samplerate = static_cast<uint_t>(track.sample_rate);
+  const uint_t samplerate = track.sample_rate;
 
   aubio_tempo_ptr tempo{
     new_aubio_tempo("default", win_s, hop_s, samplerate), &del_aubio_tempo
@@ -1061,10 +1063,9 @@ downmix_to_fvec(interleaved<float> const &audio, size_t offset, fvec_t *buffer)
     throw runtime_error("aubio: failed to allocate buffers");
   }
 
-  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
-    downmix_to_fvec(track, frame, inbuf.get());
-    aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
-  }
+  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
+    aubio_tempo_do(tempo.get(), buffer, out.get());
+  });
 
   return aubio_tempo_get_bpm(tempo.get());
 }
@@ -1141,9 +1142,8 @@ detect_onsets(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
-    downmix_to_fvec(track, frame, inbuf.get());
-    aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
+  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
+    aubio_onset_do(onset.get(), buffer, outbuf.get());
 
     // onset detected in this hop?
     if (fvec_get_sample(outbuf.get(), 0) != smpl_t(0)) {
@@ -1152,7 +1152,7 @@ detect_onsets(const interleaved<float>& track)
 	result.push_back(t_sec);
       }
     }
-  }
+  });
 
   std::sort(result.begin(), result.end());
   result.erase(std::unique(result.begin(), result.end()),
@@ -1181,8 +1181,7 @@ detect_beats(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
-    downmix_to_fvec(track, frame, inbuf.get());
+  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
 
     // Beat detected in this hop?
@@ -1192,7 +1191,7 @@ detect_beats(const interleaved<float>& track)
         result.push_back(t_sec);
       }
     }
-  }
+  });
 
   std::sort(result.begin(), result.end());
   result.erase(
