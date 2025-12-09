@@ -2860,34 +2860,28 @@ int main(int argc, char** argv)
           }
         }
 
-        size_t count = 0;
-        for (const auto& [path, ti] : g_db.items) {
-          if (!ti.cue_bars.empty() && matcher(ti)) {
-            ++count;
-            cout << std::setw(3) << count << ". "
-                      << path.generic_string()
-                      << "  |  BPM: " << std::fixed << std::setprecision(2) << ti.bpm
-                      << "  |  Tags: ";
-            if (ti.tags.empty()) {
-              cout << "(none)";
-            } else {
-              bool first = true;
-              for (const auto& tag : ti.tags) {
-                if (!first) cout << ", ";
-                cout << tag;
-                first = false;
-              }
+        auto matched = g_db.items | std::views::values
+                     | std::views::filter(matcher);
+        for (const auto& [index, info]: std::views::enumerate(matched)) {
+          cout << std::setw(3) << (index + 1) << ". "
+               << info.filename.generic_string()
+               << "  |  BPM: " << std::fixed << std::setprecision(2) << info.bpm
+               << "  |  Tags: ";
+          if (info.tags.empty()) {
+            cout << "(none)";
+          } else {
+            bool first = true;
+            for (const auto& tag : info.tags) {
+              if (!first) cout << ", ";
+              cout << tag;
+              first = false;
             }
-            cout << "\n";
           }
+          cout << "\n";
         }
 
-        if (count == 0) {
-          if (args.empty()) {
-            println(cout, "(no tracks with cues in DB)");
-          } else {
-            println(cout, "(no tracks matching expression)");
-          }
+        if (std::ranges::empty(matched)) {
+          println(cout, "(no tracks matching expression)");
         }
       }
     );
