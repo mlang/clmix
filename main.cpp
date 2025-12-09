@@ -138,6 +138,7 @@ public:
   interleaved& operator=(interleaved&&) noexcept = default;
 
   [[nodiscard]] size_t frames()   const noexcept { return frames_; }
+  [[nodiscard]] double duration() const noexcept { return static_cast<double>(frames()) / sample_rate; }
   [[nodiscard]] size_t channels() const noexcept { return channels_; }
   [[nodiscard]] size_t samples()  const noexcept { return storage.size(); }
   [[nodiscard]] T*       data()       noexcept { return storage.data(); }
@@ -1030,6 +1031,15 @@ using aubio_tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
 using aubio_onset_ptr = unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
 using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
+inline void
+downmix_to_fvec(interleaved<float> const &audio, size_t offset, fvec_t *buffer)
+{
+  const auto downmix = std::ranges::transform(
+    std::views::iota(offset, std::min(offset + buffer->length, audio.frames())),
+    buffer->data, [&audio](size_t frame) { return audio[frame].average(); });
+  std::fill(downmix.out, buffer->data + buffer->length, smpl_t(0));
+}
+
 [[nodiscard]] float detect_bpm(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
@@ -1051,11 +1061,8 @@ using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
     throw runtime_error("aubio: failed to allocate buffers");
   }
 
-  for (size_t start = 0; start < track.frames(); start += hop_s) {
-    auto frames = std::views::iota(start, start + hop_s);
-    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
-      return frame < track.frames() ? track[frame].average() : 0.0f;
-    });
+  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
+    downmix_to_fvec(track, frame, inbuf.get());
     aubio_tempo_do(tempo.get(), inbuf.get(), out.get());
   }
 
@@ -1134,25 +1141,15 @@ detect_onsets(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t start = 0; start < track.frames(); start += hop_s) {
-    auto frames = std::views::iota(start, start + hop_s);
-    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
-      return frame < track.frames() ? track[frame].average() : 0.0f;
-    });
-
+  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
+    downmix_to_fvec(track, frame, inbuf.get());
     aubio_onset_do(onset.get(), inbuf.get(), outbuf.get());
 
     // onset detected in this hop?
-    if (fvec_get_sample(outbuf.get(), 0) != 0.0) {
-      // aubio_onset_get_last_s returns seconds
-      const smpl_t t_sec = aubio_onset_get_last_s(onset.get());
-      if (t_sec >= 0.0f) {
-        const double t = static_cast<double>(t_sec);
-        const double track_len_sec =
-          static_cast<double>(track.frames()) / static_cast<double>(samplerate);
-        if (t >= 0.0 && t <= track_len_sec) {
-          result.push_back(t);
-        }
+    if (fvec_get_sample(outbuf.get(), 0) != smpl_t(0)) {
+      const auto t_sec = double(aubio_onset_get_last_s(onset.get()));
+      if (t_sec >= 0.0 && t_sec <= track.duration()) {
+	result.push_back(t_sec);
       }
     }
   }
@@ -1184,25 +1181,15 @@ detect_beats(const interleaved<float>& track)
 
   vector<double> result;
 
-  for (size_t start = 0; start < track.frames(); start += hop_s) {
-    auto frames = std::views::iota(start, start + hop_s);
-    std::ranges::transform(frames, inbuf->data, [&track](size_t frame) {
-      return frame < track.frames() ? track[frame].average() : 0.0f;
-    });
-
+  for (size_t frame = 0; frame < track.frames(); frame += hop_s) {
+    downmix_to_fvec(track, frame, inbuf.get());
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
 
     // Beat detected in this hop?
-    if (fvec_get_sample(tempo_out.get(), 0) != 0.0f) {
-      // aubio_tempo_get_last_s returns seconds
-      const smpl_t t_sec = aubio_tempo_get_last_s(tempo.get());
-      if (t_sec >= 0.0f) {
-        const double t = static_cast<double>(t_sec);
-        const double track_len_sec =
-          static_cast<double>(track.frames()) / static_cast<double>(samplerate);
-        if (t >= 0.0 && t <= track_len_sec) {
-          result.push_back(t);
-        }
+    if (fvec_get_sample(tempo_out.get(), 0) != smpl_t(0)) {
+      const auto t_sec = double(aubio_tempo_get_last_s(tempo.get()));
+      if (t_sec >= 0.0 && t_sec <= track.duration()) {
+        result.push_back(t_sec);
       }
     }
   }
@@ -1260,8 +1247,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
       ti.upbeat_beats
     + (double)(first_bar - 1) * (double)ti.beats_per_bar;
 
-  const double trackLenSec =
-      (double)track.frames() / (double)sr;
+  const auto duration = track.duration();
 
   for (int bar = first_bar; bar < last_bar; ++bar) {
     for (int b = 0; b < (int)ti.beats_per_bar; ++b) {
@@ -1275,7 +1261,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
       const double gridTime =
           shiftSec + beatIndexFromZero * secondsPerBeat;
 
-      if (gridTime < 0.0 || gridTime >= trackLenSec) {
+      if (gridTime < 0.0 || gridTime >= duration) {
         continue;
       }
 
