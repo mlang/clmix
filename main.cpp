@@ -64,6 +64,7 @@ using multichannel = Kokkos::mdspan<T, Kokkos::dextents<size_t, 2>>;
 
 using boost::math::statistics::simple_ordinary_least_squares_with_R_squared;
 using nlohmann::json;
+using std::ceil, std::clamp, std::floor, std::min, std::max;
 using std::cerr, std::cout;
 using std::expected, std::unexpected;
 using std::filesystem::path;
@@ -158,7 +159,7 @@ public:
     [[nodiscard]] T peak() const noexcept {
       return std::ranges::fold_left(
         row | std::views::transform([](auto v) { return std::abs(v); }),
-        T(0), [](auto a, auto b) { return std::max(a, b); }
+        T(0), [](auto a, auto b) { return max(a, b); }
       );
     }
 
@@ -196,7 +197,7 @@ public:
   {
     return std::ranges::fold_left(
       storage | std::views::transform([](auto v) { return std::abs(v); }),
-      T(0), [](auto a, auto b) { return std::max(a, b); }
+      T(0), [](auto a, auto b) { return max(a, b); }
     );
   }
 
@@ -312,7 +313,7 @@ change_tempo(const interleaved<float>& in,
   assert(std::isfinite(ratio));
 
   // Estimate output frames (add 1 for safety).
-  const double est_out_frames_d = std::ceil(static_cast<double>(in_frames) * ratio) + 1.0;
+  const double est_out_frames_d = ceil(static_cast<double>(in_frames) * ratio) + 1.0;
   const auto   est_out_frames_sz = static_cast<size_t>(est_out_frames_d);
 
   if (!in_range<long>(est_out_frames_sz))
@@ -355,7 +356,7 @@ enum class fade_curve { Linear, Sine };
 // For fade_curve::Sine we use a sine-shaped equal-power style curve.
 [[nodiscard]] inline float apply_fade_curve(fade_curve curve, double x) noexcept
 {
-  x = std::clamp(x, 0.0, 1.0);
+  x = clamp(x, 0.0, 1.0);
   switch (curve) {
     case fade_curve::Linear:
       return static_cast<float>(x);
@@ -438,8 +439,8 @@ struct Metronome {
 
   void prepare_after_seek(double posSrcFrames, double framesPerBeatSrc) {
     reset_runtime();
-    const double q = std::max(0.0, posSrcFrames) / framesPerBeatSrc;
-    const double qFloor = std::floor(q);
+    const double q = max(0.0, posSrcFrames) / framesPerBeatSrc;
+    const double qFloor = floor(q);
     const auto bi = static_cast<uint64_t>(qFloor);
     const double frac = q - qFloor;
     if (std::abs(frac) < 1e-9) {
@@ -450,15 +451,15 @@ struct Metronome {
   }
 
   [[nodiscard]] float process(double posSrcFrames, double framesPerBeatSrc, uint32_t device_rate) {
-    if (clickLen == 0) clickLen = std::max(1, (int)(device_rate / 100)); // ~10ms
+    if (clickLen == 0) clickLen = max(1, (int)(device_rate / 100)); // ~10ms
     auto beatIndex = static_cast<uint64_t>(
-      std::floor(std::max(0.0, posSrcFrames) / framesPerBeatSrc)
+      floor(max(0.0, posSrcFrames) / framesPerBeatSrc)
     );
     if (beatIndex != lastBeatIndex) {
       lastBeatIndex = beatIndex;
       clickSamplesLeft = clickLen;
       clickPhase = 0.f;
-      unsigned curBpb = std::max(1u, bpb.load());
+      unsigned curBpb = max(1u, bpb.load());
       bool downbeat = (beatIndex % static_cast<uint64_t>(curBpb)) == 0;
       clickAmp = downbeat ? downbeatAmp : beatAmp;
       clickFreqCurHz = downbeat ? clickFreqHzDownbeat : clickFreqHzBeat;
@@ -612,7 +613,7 @@ public:
         err.append(" at position ");
         err.append(std::to_string(i));
         err.append(" near '");
-        const size_t start = i, end = std::min(i + 10, s.size());
+        const size_t start = i, end = min(i + 10, s.size());
         err.append(std::string(s.substr(start, end - start)));
         err.push_back('\'');
         throw std::invalid_argument(err);
@@ -1085,7 +1086,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   auto required_att_dB = [&](size_t f) -> float {
     float pk = buf[f].peak();
     // attenuation needed in dB (>= 0)
-    return (pk > 0.f) ? std::max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
+    return (pk > 0.f) ? max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
   };
 
   // 2) Backward pass: limit how fast attenuation may increase (attack slope)
@@ -1093,18 +1094,18 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   vector<float> att(frames, 0.f);
   att[frames - 1] = required_att_dB(frames - 1);
   for (size_t i = frames - 1; i-- > 0; ) {
-    att[i] = std::max(required_att_dB(i), att[i + 1] - attack_step);
+    att[i] = max(required_att_dB(i), att[i + 1] - attack_step);
   }
 
   // 3) Forward pass: limit how fast attenuation may decrease (release slope)
   const float release_step = max_release_db_per_s / static_cast<float>(sr);
   for (size_t i = 1; i < frames; ++i) {
-    att[i] = std::max(att[i], att[i - 1] - release_step);
+    att[i] = max(att[i], att[i - 1] - release_step);
   }
 
   // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
   for (size_t f = 0; f < frames; ++f) {
-    buf[f] *= std::clamp(dbamp(-att[f]), 0.0f, 1.0f);
+    buf[f] *= clamp(dbamp(-att[f]), 0.0f, 1.0f);
   }
 }
 
@@ -1268,7 +1269,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
 
       auto it = std::lower_bound(
         onsetTimes.begin(), onsetTimes.end(),
-        std::max(0.0, lo)
+        max(0.0, lo)
       );
 
       double bestTime = -1.0;
@@ -1428,8 +1429,8 @@ struct MixResult {
           if (frames == 0) {
             first_cue = last_cue = 0.0;
           } else {
-            first_cue = std::clamp(first_cue, 0.0, static_cast<double>(frames - 1));
-            last_cue  = std::clamp(last_cue,  0.0, static_cast<double>(frames - 1));
+            first_cue = clamp(first_cue, 0.0, static_cast<double>(frames - 1));
+            last_cue  = clamp(last_cue,  0.0, static_cast<double>(frames - 1));
           }
 
           return measure_lufs(audio).and_then(
@@ -1466,15 +1467,15 @@ struct MixResult {
       items[i].offset = items[i-1].offset + items[i-1].last_cue - items[i].first_cue;
     }
     double minOff = 0.0;
-    for (auto& it : items) minOff = std::min(minOff, it.offset);
+    for (auto& it : items) minOff = min(minOff, it.offset);
     if (minOff < 0.0) for (auto& it : items) it.offset -= minOff;
   }
 
   // Determine total frames
   size_t total_frames = 0;
   for (auto& it : items) {
-    const auto offsetFrames = static_cast<size_t>(std::ceil(it.offset));
-    total_frames = std::max(total_frames, offsetFrames + it.audio.frames());
+    const auto offsetFrames = static_cast<size_t>(ceil(it.offset));
+    total_frames = max(total_frames, offsetFrames + it.audio.frames());
   }
 
   result.audio = interleaved<float>(
@@ -1486,7 +1487,7 @@ struct MixResult {
   for (size_t idx = 0; idx < items.size(); ++idx) {
     auto &it = items[idx];
     const size_t inChS = it.audio.channels();
-    const auto gain_lin = dbamp(std::clamp(target_lufs - it.lufs, -12.0, 6.0));
+    const auto gain_lin = dbamp(clamp(target_lufs - it.lufs, -12.0, 6.0));
 
     const bool is_first = (idx == 0);
     const bool is_last  = (idx + 1 == items.size());
@@ -1531,7 +1532,7 @@ struct MixResult {
 
       double beatsFromZero = mixFrame / fpb;
       long barIdx = static_cast<long>(
-        std::floor(beatsFromZero / static_cast<double>(result.bpb))
+        floor(beatsFromZero / static_cast<double>(result.bpb))
       ) + 1;
 
       result.cues.push_back(mix_cue{barIdx, it.info.filename, bar});
@@ -1567,7 +1568,7 @@ void play(player_state &player, multichannel<float> output, uint32_t device_rate
 {
   if (player.track) {
     auto &track = *player.track;
-    const auto bpm = std::max(1.0, player.metro.bpm.load());
+    const auto bpm = max(1.0, player.metro.bpm.load());
     const float gainLin = dbamp(player.trackGainDB.load());
     const size_t srcCh = track.channels();
     const size_t totalSrcFrames = track.frames();
@@ -1584,11 +1585,11 @@ void play(player_state &player, multichannel<float> output, uint32_t device_rate
     for (size_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load()) {
-        unsigned bpbNow = std::max(1u, player.metro.bpb.load());
-        const double adjNow  = std::max(0.0, pos - shiftSrc);
-        const double adjNext = std::max(0.0, pos + incrSrcPerOut - shiftSrc);
-        auto beatNow  = (uint64_t)std::floor(adjNow / framesPerBeatSrc);
-        auto beatNext = (uint64_t)std::floor(adjNext / framesPerBeatSrc);
+        unsigned bpbNow = max(1u, player.metro.bpb.load());
+        const double adjNow  = max(0.0, pos - shiftSrc);
+        const double adjNext = max(0.0, pos + incrSrcPerOut - shiftSrc);
+        auto beatNow  = (uint64_t)floor(adjNow / framesPerBeatSrc);
+        auto beatNext = (uint64_t)floor(adjNext / framesPerBeatSrc);
         bool crossesBeat = (beatNext != beatNow);
         bool nextIsBarStart = (beatNext % static_cast<uint64_t>(bpbNow)) == 0;
         if (crossesBeat && nextIsBarStart) {
@@ -1606,7 +1607,7 @@ void play(player_state &player, multichannel<float> output, uint32_t device_rate
       // Linear interpolation per channel
       auto i0 = (size_t)pos;
       double frac = pos - (double)i0;
-      size_t i1 = std::min(i0 + 1, totalSrcFrames - 1);
+      size_t i1 = min(i0 + 1, totalSrcFrames - 1);
 
       float click = player.metro.process(pos - shiftSrc, framesPerBeatSrc, device_rate);
 
@@ -1766,7 +1767,7 @@ void register_volume_command(REPL& repl, string label) {
         if (tail == "db") s.resize(s.size() - 2);
       }
       if (auto v = parse_number<float>(s)) {
-        const float db = std::clamp(*v, -60.f, 12.f);
+        const float db = clamp(*v, -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
         println(cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
@@ -1821,13 +1822,13 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
   // keep existing volume
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(ti.bpm);
-  g_player.metro.bpb.store(std::max(1u, ti.beats_per_bar));
+  g_player.metro.bpb.store(max(1u, ti.beats_per_bar));
   g_player.upbeatBeats.store(ti.upbeat_beats);
   g_player.timeOffsetSec.store(ti.time_offset_sec);
 
   auto print_estimated_bars = [&](){
-    auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
-    unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
+    auto bpmNow = max(1.0, g_player.metro.bpm.load());
+    unsigned bpbNow = max(1u, g_player.metro.bpb.load());
     size_t total_frames = tr->frames();
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
     double beats = (double)total_frames / framesPerBeat;
@@ -2192,9 +2193,9 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
         return;
       }
       if (auto bar1 = parse_number<int>(a[0]); bar1) {
-        int bar0 = std::max(0, *bar1 - 1);
-        auto bpmNow = std::max(1.0, g_player.metro.bpm.load());
-        unsigned bpbNow = std::max(1u, g_player.metro.bpb.load());
+        int bar0 = max(0, *bar1 - 1);
+        auto bpmNow = max(1.0, g_player.metro.bpm.load());
+        unsigned bpbNow = max(1u, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
         double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
         double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
@@ -2311,7 +2312,7 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
 
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(g_mix_bpm);
-  g_player.metro.bpb.store(std::max(1u, g_mix_bpb));
+  g_player.metro.bpb.store(max(1u, g_mix_bpb));
   if (!g_mix_tracks.empty()) {
     if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
       g_player.upbeatBeats.store(ti0->upbeat_beats);
@@ -2751,7 +2752,7 @@ int main(int argc, char** argv)
           return;
         }
         if (auto bar1 = parse_number<int>(a[0]); bar1) {
-          int bar0 = std::max(0, *bar1 - 1);
+          int bar0 = max(0, *bar1 - 1);
           double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
           double shift = g_player.upbeatBeats.load() * framesPerBeat
                          + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
