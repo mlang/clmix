@@ -911,7 +911,6 @@ uint32_t g_device_channels = 2;
 vector<path> g_mix_tracks;
 
 struct mix_cue {
-  double frame;                 // absolute cue frame in mix timeline
   long   bar;                   // 1-based global bar number in the mix
   path track;  // which track this cue comes from
   int    local_bar;             // bar number within that track (1-based)
@@ -1535,12 +1534,7 @@ struct MixResult {
         std::floor(beatsFromZero / static_cast<double>(result.bpb))
       ) + 1;
 
-      result.cues.push_back(mix_cue{
-        mixFrame,
-        barIdx,
-        it.info.filename,
-        bar
-      });
+      result.cues.push_back(mix_cue{barIdx, it.info.filename, bar});
     }
   }
 
@@ -2788,9 +2782,8 @@ int main(int argc, char** argv)
           return;
         }
         for (const auto& c : g_mix_cues) {
-          auto name = c.track.filename().generic_string();
           println(cout, "mix bar {}  |  track: {}  |  track bar {}",
-                  c.bar, name, c.local_bar);
+                  c.bar, c.track.filename().generic_string(), c.local_bar);
         }
       }
     );
