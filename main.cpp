@@ -43,18 +43,13 @@
 #include <nlohmann/json.hpp>
 #include <sndfile.hh>
 
+#include <aubio/aubio.h>
 #include <ebur128.h>
 #include <getopt.h>
+#include <miniaudio.h>
 #include <readline/history.h>
 #include <readline/readline.h>
 #include <samplerate.h>
-
-extern "C" {
-#include <aubio/aubio.h>
-}
-
-#define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio.h>
 
 namespace {
 
@@ -199,8 +194,8 @@ public:
   [[nodiscard]] T peak() const noexcept
   {
     return ranges::fold_left(
-      storage | views::transform([](auto v) { return abs(v); }),
-      T(0), [](auto a, auto b) { return max(a, b); }
+      storage | views::transform([](T v) { return abs(v); }),
+      T(0), [](T a, T b) { return max(a, b); }
     );
   }
 
@@ -255,11 +250,7 @@ void ensure_headroom(interleaved<T> &audio, T headroom_dB)
 }
 
 struct ebur128_state_deleter {
-  void operator()(ebur128_state *p) const noexcept {
-    if (p) {
-      ebur128_destroy(&p);
-    }
-  }
+  void operator()(ebur128_state *p) const noexcept { if (p) ebur128_destroy(&p); }
 };
 
 using ebur128_state_ptr = unique_ptr<ebur128_state, ebur128_state_deleter>;
@@ -309,7 +300,7 @@ change_tempo(const interleaved<float>& in,
   // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
   // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
   // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
-  const auto ratio = (double(to_rate)/double(in.sample_rate))*(from_bpm/to_bpm);
+  const auto ratio = (double(to_rate) / in.sample_rate) * (from_bpm / to_bpm);
 
   // With valid inputs, ratio must be finite and > 0.
   assert(ratio > 0.0);
@@ -1130,7 +1121,7 @@ detect_onsets(const interleaved<float>& track)
   const uint_t hop_s = 512;
   const auto samplerate = static_cast<uint_t>(track.sample_rate);
 
-  using fvec_ptr  = std::unique_ptr<fvec_t,        decltype(&del_fvec)>;
+  using fvec_ptr  = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
   aubio_onset_ptr onset{
     new_aubio_onset("hfc", win_s, hop_s, samplerate), &del_aubio_onset

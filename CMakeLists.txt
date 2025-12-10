@@ -24,7 +24,7 @@ add_executable(clmix main.cpp)
 target_compile_features(clmix PRIVATE cxx_std_23)
 set_property(TARGET clmix PROPERTY CXX_STANDARD_REQUIRED ON)
 target_compile_definitions(clmix
-  PRIVATE MDSPAN_USE_BRACKET_OPERATOR=1
+  PRIVATE MDSPAN_USE_BRACKET_OPERATOR MINIAUDIO_IMPLEMENTATION
           _GLIBCXX_USE_TBB_PAR_BACKEND
 )
 if (CLMIX_ENABLE_MARCH_NATIVE)
