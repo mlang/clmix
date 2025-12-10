@@ -72,6 +72,7 @@ using std::floating_point;
 using std::in_range;
 using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
       std::is_same_v;
+using std::optional, std::nullopt;
 using std::println;
 namespace ranges { using namespace std::ranges; }
 namespace views { using namespace std::views; }
@@ -375,7 +376,7 @@ enum class fade_curve { Linear, Sine };
 // optional fade-out from last_cue->end. Uses a chosen curve (typically Sine = equal-power style).
 [[nodiscard]] inline float fade_for_frame(
   size_t frameIndex, size_t total_frames,
-  std::optional<double> first_cue, std::optional<double> last_cue,
+  optional<double> first_cue, optional<double> last_cue,
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
@@ -496,7 +497,7 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
 // If bpm_override is not provided, track_info::bpm is used.
 [[nodiscard]] vector<double>
 cue_frames(track_info const& info,
-  uint32_t sr, std::optional<double> bpm_override = std::nullopt
+  uint32_t sr, optional<double> bpm_override = nullopt
 ) {
   const auto frames_per_beat = 60.0 / bpm_override.value_or(info.bpm) * sr;
   auto bar_to_frame =
@@ -1495,8 +1496,8 @@ struct MixResult {
     const bool is_last  = (idx + 1 == items.size());
 
     // Decide which fades to apply for this track
-    std::optional<double> fade_in_cue;
-    std::optional<double> fade_out_cue;
+    optional<double> fade_in_cue;
+    optional<double> fade_out_cue;
 
     if (!is_first) fade_in_cue  = it.first_cue; // no fade-in on first track
     if (!is_last)  fade_out_cue = it.last_cue;  // no fade-out on last track
@@ -2287,7 +2288,7 @@ char** clmix_completion(const char* text, int start, int end) {
 }
 
 // Helper: rebuild mix into global player from g_mix_tracks, optionally forcing BPM.
-void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
+void rebuild_mix_into_player(optional<double> force_bpm = nullopt)
 {
   if (g_mix_tracks.empty()) {
     throw runtime_error("No tracks in mix.");
@@ -2327,7 +2328,7 @@ void rebuild_mix_into_player(std::optional<double> force_bpm = std::nullopt)
 }
 
 void export_current_mix(const path& out_path,
-  std::optional<double> force_bpm = std::nullopt
+  optional<double> force_bpm = nullopt
 )
 {
   assert(g_mix_tracks.empty() == false);
@@ -2419,8 +2420,8 @@ int main(int argc, char** argv)
 
   // Command-line options (after trackdb_path)
   vector<Matcher>       opt_random_exprs;
-  std::optional<double> opt_bpm;
-  std::optional<path>   opt_export_path;
+  optional<double> opt_bpm;
+  optional<path>   opt_export_path;
 
   // Prepare getopt_long
   int opt;
@@ -2619,7 +2620,7 @@ int main(int argc, char** argv)
         }
         g_mix_tracks.push_back(f);
         try {
-          rebuild_mix_into_player(std::nullopt);
+          rebuild_mix_into_player(nullopt);
           cout << "Added. Mix size: " << g_mix_tracks.size()
                     << ", BPM: " << g_mix_bpm
                     << ", BPB: " << g_mix_bpb << "\n";
@@ -2682,7 +2683,7 @@ int main(int argc, char** argv)
         g_mix_tracks.insert(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
 
         try {
-          rebuild_mix_into_player(std::nullopt);
+          rebuild_mix_into_player(nullopt);
           println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
                   from, to, g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
         } catch (const std::exception& e) {
@@ -2728,7 +2729,7 @@ int main(int argc, char** argv)
             return;
           }
           try {
-            rebuild_mix_into_player(std::nullopt);
+            rebuild_mix_into_player(nullopt);
           } catch (const std::exception& e) {
             println(cerr, "Build mix failed: {}", e.what());
             return;
@@ -2935,7 +2936,7 @@ int main(int argc, char** argv)
         for (auto [index, file]: views::enumerate(g_mix_tracks))
           println(cout, "  {}. {}", index + 1, file.generic_string());
         
-        rebuild_mix_into_player(std::nullopt);
+        rebuild_mix_into_player(nullopt);
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
                 g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
       }
