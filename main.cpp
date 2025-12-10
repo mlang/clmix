@@ -2579,16 +2579,6 @@ int main(int argc, char** argv)
         repl.stop();
       }
     );
-    repl.register_command("echo",
-      "Echo arguments; supports quoted args",
-      [](command_args args){
-        for (size_t i = 0; i < args.size(); ++i) {
-          if (i) cout << ' ';
-          cout << args[i];
-          }
-        cout << "\n";
-      }
-    );
     repl.register_command("track-info",
       "track-info <file> - open per-track shell",
       [&](command_args args) {
