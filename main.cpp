@@ -64,7 +64,7 @@ using multichannel = Kokkos::mdspan<T, Kokkos::dextents<size_t, 2>>;
 
 using boost::math::statistics::simple_ordinary_least_squares_with_R_squared;
 using nlohmann::json;
-using std::ceil, std::clamp, std::floor, std::min, std::max;
+using std::abs, std::ceil, std::clamp, std::floor, std::min, std::max;
 using std::cerr, std::cout;
 using std::expected, std::unexpected;
 using std::filesystem::path;
@@ -73,6 +73,8 @@ using std::in_range;
 using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
       std::is_same_v;
 using std::println;
+namespace ranges { using namespace std::ranges; }
+namespace views { using namespace std::views; }
 using std::runtime_error;
 using std::shared_ptr, std::unique_ptr;
 using std::string, std::string_view;
@@ -153,12 +155,12 @@ public:
     frame_view(Elem* row, size_t ch) : row(row, ch) {}
 
     [[nodiscard]] T average() const noexcept {
-      return std::ranges::fold_left(row, T(0), std::plus<T>{}) / row.size();
+      return ranges::fold_left(row, T(0), std::plus<T>{}) / row.size();
     }
 
     [[nodiscard]] T peak() const noexcept {
-      return std::ranges::fold_left(
-        row | std::views::transform([](auto v) { return std::abs(v); }),
+      return ranges::fold_left(
+        row | views::transform([](auto v) { return abs(v); }),
         T(0), [](auto a, auto b) { return max(a, b); }
       );
     }
@@ -195,8 +197,8 @@ public:
 
   [[nodiscard]] T peak() const noexcept
   {
-    return std::ranges::fold_left(
-      storage | std::views::transform([](auto v) { return std::abs(v); }),
+    return ranges::fold_left(
+      storage | views::transform([](auto v) { return abs(v); }),
       T(0), [](auto a, auto b) { return max(a, b); }
     );
   }
@@ -443,7 +445,7 @@ struct Metronome {
     const double qFloor = floor(q);
     const auto bi = static_cast<uint64_t>(qFloor);
     const double frac = q - qFloor;
-    if (std::abs(frac) < 1e-9) {
+    if (abs(frac) < 1e-9) {
       lastBeatIndex = bi - 1; // prime to trigger click at boundary (wraps for beat 0)
     } else {
       lastBeatIndex = bi;
@@ -502,8 +504,8 @@ cue_frames(track_info const& info,
     , frames_per_bar = frames_per_beat * info.beats_per_bar
     ](int bar) { return shift + (bar - 1) * frames_per_bar; };
 
-  return info.cue_bars | std::views::transform(bar_to_frame)
-       | std::ranges::to<vector<double>>();
+  return info.cue_bars | views::transform(bar_to_frame)
+       | ranges::to<vector<double>>();
 }
 
 class Matcher {
@@ -770,7 +772,7 @@ public:
 
         // Restrict tags starting with digits: must be all digits
         if (!name.empty() && std::isdigit(static_cast<unsigned char>(name[0]))) {
-          bool all_digits = std::ranges::all_of(name,
+          bool all_digits = ranges::all_of(name,
             [](unsigned char c){ return std::isdigit(c); }
           );
           if (!all_digits) {
@@ -837,8 +839,8 @@ void save(track_database const &database, const path& dbfile)
 {
   auto to_json = [](const track_info &ti) { return json(ti); };
   auto tracks = json::array();
-  std::ranges::move(
-    database.items | std::views::values | std::views::transform(to_json),
+  ranges::move(
+    database.items | views::values | views::transform(to_json),
     std::back_inserter(tracks)
   );
 
@@ -877,10 +879,10 @@ match(track_database const &database, Matcher const &matcher)
 {
   auto valid = [](const track_info &ti) { return !ti.cue_bars.empty(); };
 
-  return database.items | std::views::values | std::views::filter(valid)
-       | std::views::filter(matcher)
-       | std::views::transform(&track_info::filename)
-       | std::ranges::to<vector<path>>();
+  return database.items | views::values | views::filter(valid)
+       | views::filter(matcher)
+       | views::transform(&track_info::filename)
+       | ranges::to<vector<path>>();
 }
 
 struct player_state {
@@ -1035,8 +1037,8 @@ template<typename F> void
 for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 {
   auto mono = [&audio](size_t frame) { return audio[frame].average(); };
-  for (auto frames: std::views::chunk(std::views::iota(size_t(0), audio.frames()), buffer->length)) {
-    smpl_t *tail = std::ranges::transform(frames, buffer->data, mono).out;
+  for (auto frames: views::chunk(views::iota(size_t(0), audio.frames()), buffer->length)) {
+    smpl_t *tail = ranges::transform(frames, buffer->data, mono).out;
     std::fill(tail, buffer->data + buffer->length, smpl_t(0));
     f(buffer);
   }
@@ -1277,7 +1279,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
 
       for (; it != onsetTimes.end() && *it <= hi; ++it) {
         double d = *it - gridTime;
-        double a = std::abs(d);
+        double a = abs(d);
         if (a < bestAbs) {
           bestAbs = a;
           bestTime = *it;
@@ -1361,8 +1363,8 @@ compute_bpm_offset_correction(const track_info& ti,
   if (tracks.empty()) {
     throw runtime_error("No tracks to compute default BPM.");
   }
-  const auto bpms = tracks | std::views::transform(&track_info::bpm);
-  return std::ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
+  const auto bpms = tracks | views::transform(&track_info::bpm);
+  return ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
 }
 
 struct MixResult {
@@ -1456,8 +1458,8 @@ struct MixResult {
   }
 
   // Target LUFS = mean of track LUFS
-  const auto target_lufs = std::ranges::fold_left(
-    items | std::views::transform(&Item::lufs), 0.0, std::plus<double>{}
+  const auto target_lufs = ranges::fold_left(
+    items | views::transform(&Item::lufs), 0.0, std::plus<double>{}
   ) / items.size();
 
   // Offsets: align last cue of A with first cue of B
@@ -2071,7 +2073,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
 
       if (a.size() >= 2) {
         string m = a[1];
-        std::ranges::transform(m, m.begin(),
+        ranges::transform(m, m.begin(),
           [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
         if (m == "beats") {
           method = TransientMethod::Beats;
@@ -2122,7 +2124,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
 
         // Enforce ±1% BPM adjustment
         const double old_bpm = ti.bpm;
-        const double rel = std::abs(corr.new_bpm - old_bpm) / old_bpm;
+        const double rel = abs(corr.new_bpm - old_bpm) / old_bpm;
         const double max_rel = 0.01; // 1%
         if (rel > max_rel) {
           println(cerr,
@@ -2504,7 +2506,7 @@ int main(int argc, char** argv)
 
       std::shuffle(group.begin(), group.end(), rng);
       apply_intro_outro_constraints(group, rng);
-      std::ranges::move(group, std::back_inserter(g_mix_tracks));
+      ranges::move(group, std::back_inserter(g_mix_tracks));
     }
   }
 
@@ -2813,7 +2815,7 @@ int main(int argc, char** argv)
           v.emplace_back(tag, cnt);
         }
 
-        std::ranges::sort(v, [](auto const& a, auto const& b) {
+        ranges::sort(v, [](auto const& a, auto const& b) {
           if (a.second != b.second) return a.second > b.second; // more tracks first
           return a.first < b.first;                             // tie-break by name
         });
@@ -2853,9 +2855,8 @@ int main(int argc, char** argv)
           }
         }
 
-        auto matched = g_db.items | std::views::values
-                     | std::views::filter(matcher);
-        for (const auto& [index, info]: std::views::enumerate(matched)) {
+        auto matched = g_db.items | views::values | views::filter(matcher);
+        for (const auto& [index, info]: views::enumerate(matched)) {
           cout << std::setw(3) << (index + 1) << ". "
                << info.filename.generic_string()
                << "  |  BPM: " << std::fixed << std::setprecision(2) << info.bpm
@@ -2873,7 +2874,7 @@ int main(int argc, char** argv)
           cout << "\n";
         }
 
-        if (std::ranges::empty(matched)) {
+        if (ranges::empty(matched)) {
           println(cout, "(no tracks matching expression)");
         }
       }
@@ -2905,7 +2906,7 @@ int main(int argc, char** argv)
           }
           std::shuffle(group.begin(), group.end(), rng);
           apply_intro_outro_constraints(group, rng);
-          std::ranges::move(group, std::back_inserter(g_mix_tracks));
+          ranges::move(group, std::back_inserter(g_mix_tracks));
           return true;
         };
 
@@ -2931,7 +2932,7 @@ int main(int argc, char** argv)
         }
 
         println(cout, "Track order:");
-        for (auto [index, file]: std::views::enumerate(g_mix_tracks))
+        for (auto [index, file]: views::enumerate(g_mix_tracks))
           println(cout, "  {}. {}", index + 1, file.generic_string());
         
         rebuild_mix_into_player(std::nullopt);
