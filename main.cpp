@@ -1032,7 +1032,7 @@ using aubio_onset_ptr = unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
 using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
 template<typename F> void
-downmix_chunks(interleaved<float> const &audio, fvec_t *buffer, F &&f)
+for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 {
   auto mono = [&audio](size_t frame) { return audio[frame].average(); };
   for (auto frames: std::views::chunk(std::views::iota(size_t(0), audio.frames()), buffer->length)) {
@@ -1063,7 +1063,7 @@ downmix_chunks(interleaved<float> const &audio, fvec_t *buffer, F &&f)
     throw runtime_error("aubio: failed to allocate buffers");
   }
 
-  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
+  for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_tempo_do(tempo.get(), buffer, out.get());
   });
 
@@ -1142,7 +1142,7 @@ detect_onsets(const interleaved<float>& track)
 
   vector<double> result;
 
-  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
+  for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_onset_do(onset.get(), buffer, outbuf.get());
 
     // onset detected in this hop?
@@ -1181,7 +1181,7 @@ detect_beats(const interleaved<float>& track)
 
   vector<double> result;
 
-  downmix_chunks(track, inbuf.get(), [&](fvec_t *buffer) {
+  for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
 
     // Beat detected in this hop?
