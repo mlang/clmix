@@ -14,7 +14,7 @@ pkg_check_modules(SndFile REQUIRED IMPORTED_TARGET sndfile)
 include(CheckIncludeFileCXX)
 check_include_file_cxx("miniaudio.h" HAVE_MINIAUDIO_H)
 if (NOT HAVE_MINIAUDIO_H)
-  message(FATAL_ERROR "miniaudio.h not found. Install miniaudio or add its include directory to the build (e.g. set CMAKE_INCLUDE_PATH or use target_include_directories).")
+  message(FATAL_ERROR "miniaudio.h not found.")
 endif()
 
 find_package(Boost REQUIRED CONFIG)
@@ -34,12 +34,12 @@ if (CLMIX_ENABLE_MARCH_NATIVE)
 endif()
 target_link_libraries(clmix
   PRIVATE nlohmann_json::nlohmann_json
+          Boost::boost
           PkgConfig::Aubio
           PkgConfig::EBUR128
           PkgConfig::Readline
           PkgConfig::SampleRate
           PkgConfig::SndFile
           TBB::tbb
-          Boost::boost
 )
 install(TARGETS clmix RUNTIME DESTINATION bin)
