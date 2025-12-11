@@ -136,12 +136,12 @@ public:
   interleaved(interleaved&&) noexcept = default;
   interleaved& operator=(interleaved&&) noexcept = default;
 
-  [[nodiscard]] size_t frames()   const noexcept { return frames_; }
-  [[nodiscard]] double duration() const noexcept { return static_cast<double>(frames()) / sample_rate; }
-  [[nodiscard]] size_t channels() const noexcept { return channels_; }
-  [[nodiscard]] size_t samples()  const noexcept { return storage.size(); }
-  [[nodiscard]] T*       data()       noexcept { return storage.data(); }
-  [[nodiscard]] const T* data() const noexcept { return storage.data(); }
+  [[nodiscard]] size_t   frames()   const noexcept { return frames_; }
+  [[nodiscard]] double   duration() const noexcept { return double(frames()) / sample_rate; }
+  [[nodiscard]] size_t   channels() const noexcept { return channels_; }
+  [[nodiscard]] size_t   samples()  const noexcept { return storage.size(); }
+  [[nodiscard]] T*       data()       noexcept     { return storage.data(); }
+  [[nodiscard]] const T* data() const noexcept     { return storage.data(); }
 
   template<typename Elem>
   class frame_view {
@@ -218,7 +218,8 @@ public:
   }
 };
 
-inline void write_wav(interleaved<float> const &audio, path const &out_path)
+template<typename T>
+void write_wav(interleaved<T> const &audio, path const &out_path)
 {
   if (!in_range<sf_count_t>(audio.frames()))
     throw runtime_error("frame count too large for libsndfile");
