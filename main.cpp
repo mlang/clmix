@@ -227,7 +227,7 @@ void write_wav(interleaved<T> const &audio, path const &out_path)
   const auto frames = sf_count_t(audio.frames());
 
   SndfileHandle sf(out_path.string(), SFM_WRITE,
-    SF_FORMAT_WAV | SF_FORMAT_PCM_24,
+    SF_FORMAT_RF64 | SF_FORMAT_PCM_24,
     int(audio.channels()), int(audio.sample_rate)
   );
 
