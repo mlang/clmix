@@ -907,10 +907,10 @@ uint32_t g_device_channels = 2;
 vector<path> g_mix_tracks;
 
 struct mix_cue {
-  long   bar;        // 1-based global bar number in the mix
-  path   track;      // which track this cue comes from
-  int    local_bar;  // bar number within that track (1-based)
-  double time_sec;   // absolute time in the rendered mix (seconds)
+  unsigned   bar;        // 1-based global bar number in the mix
+  path       track;      // which track this cue comes from
+  unsigned   local_bar;  // bar number within that track (1-based)
+  double     time_sec;   // absolute time in the rendered mix (seconds)
 };
 
 vector<mix_cue> g_mix_cues;
@@ -1523,17 +1523,15 @@ struct MixResult {
   for (auto& it : items) {
     auto cueFs = cue_frames(it.info, out_rate, bpm);
     for (size_t idx2 = 0; idx2 < cueFs.size(); ++idx2) {
-      int bar = it.info.cue_bars[idx2];
-      double mixFrame = it.offset + cueFs[idx2];
+      unsigned local_bar = it.info.cue_bars[idx2];
+      double mix_frame = it.offset + cueFs[idx2];
 
-      double beatsFromZero = mixFrame / fpb;
-      long barIdx = static_cast<long>(
-        floor(beatsFromZero / static_cast<double>(result.bpb))
-      ) + 1;
+      unsigned beats_from_zero = round(mix_frame / fpb);
+      unsigned bar = (beats_from_zero / result.bpb) + 1;
 
-      double time_sec = mixFrame / static_cast<double>(out_rate);
+      double time_sec = mix_frame / static_cast<double>(out_rate);
 
-      result.cues.push_back(mix_cue{barIdx, it.info.filename, bar, time_sec});
+      result.cues.push_back(mix_cue{bar, it.info.filename, local_bar, time_sec});
     }
   }
 
