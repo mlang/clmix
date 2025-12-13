@@ -2814,7 +2814,7 @@ int main(int argc, char** argv)
         }
         for (const auto& c : g_mix_cues) {
           println(cout, "mix bar {}  |  track: {}  |  track bar {}",
-                  c.bar, c.track.filename().generic_string(), c.local_bar);
+                  c.bar, c.track.filename().stem().generic_string(), c.local_bar);
         }
       }
     );
@@ -2961,7 +2961,7 @@ int main(int argc, char** argv)
 
         println(cout, "Track order:");
         for (auto [index, file]: views::enumerate(g_mix_tracks))
-          println(cout, "  {}. {}", index + 1, file.generic_string());
+          println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
         
         rebuild_mix_into_player(nullopt);
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
