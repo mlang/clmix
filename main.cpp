@@ -2514,6 +2514,7 @@ int main(int argc, char** argv)
   Matcher outro_matcher = Matcher::tag("outro");
 
   vector<path> mix_tracks;
+  vector<path> last_list_results;  // last results from "list" command
 
   // Command-line options (after trackdb_path)
   vector<Matcher>       opt_random_exprs;
@@ -2703,13 +2704,40 @@ int main(int argc, char** argv)
 
     // Mix commands
     repl.register_command("add",
-      "add <file> - add track to mix (opens track-info if not in DB)",
+      "add <file>|#<index> - add track to mix (opens track-info if not in DB)",
       [&](command_args a) {
         if (a.size() != 1) {
-          println(cerr, "Usage: add <file>");
+          println(cerr, "Usage: add <file> or add #<index>");
           return;
         }
-        path f = a[0];
+
+        path f;
+        const string& arg = a[0];
+
+        if (!arg.empty() && arg[0] == '#') {
+          // add #N: use N-th entry from last list
+          if (last_list_results.empty()) {
+            println(cerr, "No previous list results. Run 'list' first.");
+            return;
+          }
+          string idx_str = arg.substr(1);
+          auto idxExp = parse_number<int>(idx_str);
+          if (!idxExp) {
+            println(cerr, "Invalid index '{}': {}", idx_str, idxExp.error());
+            return;
+          }
+          int idx1 = *idxExp;
+          int n = static_cast<int>(last_list_results.size());
+          if (idx1 < 1 || idx1 > n) {
+            println(cerr, "Index must be between 1 and {}.", n);
+            return;
+          }
+          f = last_list_results[static_cast<size_t>(idx1 - 1)];
+        } else {
+          // Normal: treat argument as filename
+          f = arg;
+        }
+
         if (!database.find(f)) {
           run_track_info_shell(database, f, trackdb_path);
         }
@@ -3065,8 +3093,12 @@ int main(int argc, char** argv)
           }
         }
 
+        last_list_results.clear();
+
         auto matched = database.items | views::values | views::filter(matcher);
         for (const auto& [index, info]: views::enumerate(matched)) {
+          last_list_results.push_back(info.filename);
+
           cout << std::setw(3) << (index + 1) << ". "
                << info.filename.generic_string()
                << "  |  BPM: " << std::fixed << std::setprecision(2) << info.bpm
@@ -3086,6 +3118,7 @@ int main(int argc, char** argv)
 
         if (ranges::empty(matched)) {
           println(cout, "(no tracks matching expression)");
+          last_list_results.clear();
         }
       }
     );
