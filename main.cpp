@@ -2649,6 +2649,17 @@ int main(int argc, char** argv)
 
     register_volume_command(repl, "Mix");
 
+    auto print_mix_tracks = [&](){
+      if (mix_tracks.empty()) {
+        println(cout, "(mix is empty)");
+        return;
+      }
+      println(cout, "Track order:");
+      for (auto [index, file] : views::enumerate(mix_tracks)) {
+        println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
+      }
+    };
+
     // Mix commands
     repl.register_command("add",
       "add <file> - add track to mix (opens track-info if not in DB)",
@@ -2673,6 +2684,59 @@ int main(int argc, char** argv)
                     << ", BPB: " << g_mix_bpb << "\n";
         } catch (const std::exception& e) {
           println(cerr, "Failed to build mix: {}", e.what());
+        }
+      }
+    );
+
+    repl.register_command("remove",
+      "remove <index> - remove track at index <index> from mix (1-based)",
+      [&](command_args a) {
+        if (a.size() != 1) {
+          println(cerr, "Usage: remove <index>");
+          return;
+        }
+        if (mix_tracks.empty()) {
+          println(cerr, "No tracks in mix.");
+          return;
+        }
+
+        auto idxExp = parse_number<int>(a[0]);
+        if (!idxExp) {
+          println(cerr, "Invalid index: {}", idxExp.error());
+          return;
+        }
+
+        int idx1 = *idxExp;
+        int n = static_cast<int>(mix_tracks.size());
+        if (idx1 < 1 || idx1 > n) {
+          println(cerr, "Index must be between 1 and {}.", n);
+          return;
+        }
+
+        size_t pos = static_cast<size_t>(idx1 - 1);
+        path removed = mix_tracks[pos];
+        mix_tracks.erase(mix_tracks.begin() + static_cast<std::ptrdiff_t>(pos));
+
+        // If mix is now empty, clear player/mix state without rebuilding
+        if (mix_tracks.empty()) {
+          g_player.playing.store(false);
+          g_player.track.reset();
+          g_mix_cues.clear();
+          println(cout, "Removed {}. Mix is now empty.",
+                  removed.filename().stem().generic_string());
+          return;
+        }
+
+        try {
+          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+          println(cout, "Removed {}. Mix size: {}, BPM: {}, BPB: {}",
+                  removed.filename().stem().generic_string(),
+                  mix_tracks.size(),
+                  mix_bpm(database, mix_tracks, forced_mix_bpm),
+                  g_mix_bpb);
+          print_mix_tracks();
+        } catch (const std::exception& e) {
+          println(cerr, "Failed to rebuild mix: {}", e.what());
         }
       }
     );
@@ -2735,6 +2799,7 @@ int main(int argc, char** argv)
                   from, to, mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
                   g_mix_bpb);
+          print_mix_tracks();
         } catch (const std::exception& e) {
           println(cerr, "Failed to rebuild mix: {}", e.what());
         }
