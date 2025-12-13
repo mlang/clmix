@@ -2742,7 +2742,7 @@ int main(int argc, char** argv)
     );
 
     repl.register_command("bpm",
-      "bpm [value] - show/set mix BPM (recomputes mix)",
+      "bpm [value|auto] - show/set mix BPM; 'auto' clears forced BPM (recomputes if needed)",
       [&](command_args a) {
         if (mix_tracks.empty()) {
           println(cerr, "No tracks in mix.");
@@ -2753,6 +2753,34 @@ int main(int argc, char** argv)
           println(cout, "Mix BPM: {:.2f}{}", bpm, forced_mix_bpm ? " (forced)" : "");
           return;
         }
+
+        // bpm auto: clear forced bpm and rebuild only if effective bpm changes
+        {
+          string arg = a[0];
+          ranges::transform(arg, arg.begin(),
+            [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+
+          if (arg == "auto") {
+            const double old_bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+            const double new_bpm = mix_bpm(database, mix_tracks, nullopt);
+
+            forced_mix_bpm = nullopt;
+
+            constexpr double eps = 1e-9;
+            if (abs(new_bpm - old_bpm) > eps) {
+              try {
+                rebuild_mix_into_player(database, mix_tracks, nullopt);
+                println(cout, "Mix BPM set to auto ({:.2f}) and recomputed.", new_bpm);
+              } catch (const std::exception& e) {
+                println(cerr, "Failed to rebuild mix: {}", e.what());
+              }
+            } else {
+              println(cout, "Mix BPM already at auto ({:.2f}); no recompute needed.", new_bpm);
+            }
+            return;
+          }
+        }
+
         if (auto v = parse_number<double>(a[0]); v) {
           if (*v <= 0.0) {
             println(cerr, "Invalid BPM: must be > 0");
