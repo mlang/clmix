@@ -1156,6 +1156,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 142.0,
+      "cue_bars": [
+        33,
+        281
+      ],
+      "filename": "Psytrance/Dacru Records/U-RECKEN - Carol Of The Bells (album edit)-2790988887.mp3",
+      "tags": [
+        "psy",
+        "vocal"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 138.0,
       "cue_bars": [
         33,
@@ -1327,6 +1342,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 145.0,
+      "cue_bars": [
+        48,
+        176
+      ],
+      "filename": "Psytrance/Shamanic Tales/Girogia Anguili - Lux/Girogia Anguili - Lux [953252178].mp3",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 1.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 140.0,
       "cue_bars": [
         113,
@@ -1342,6 +1372,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 137.99952235670048,
+      "cue_bars": [
+        94,
+        270
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust & Skizologic - Rising Dust & Skizologic - Sadhu [894736475].mp3",
+      "tags": [
+        "acid",
+        "intro",
+        "psy"
+      ],
+      "time_offset_sec": -0.272,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 140.0,
       "cue_bars": [
         35,
@@ -1350,6 +1396,7 @@
       "filename": "Psytrance/Shamanic Tales/Rising Dust - Purify/08 - Rising Dust - Space Invaders.flac",
       "tags": [
         "RisingDust",
+        "acid",
         "psy"
       ],
       "time_offset_sec": 0.0,
@@ -1379,7 +1426,24 @@
       ],
       "filename": "Psytrance/Shamanic Tales/Rising Dust - Shofar/02 - Subway Shamans - Lucy (Rising Dust Remix).flac",
       "tags": [
+        "acid",
         "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 143.0,
+      "cue_bars": [
+        45,
+        260
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Shofar/04 - Rising Dust - It’s A Monster.flac",
+      "tags": [
+        "acid",
+        "psy",
+        "voice"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
