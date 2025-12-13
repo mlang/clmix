@@ -910,7 +910,6 @@ struct mix_cue {
 vector<mix_cue> g_mix_cues;
 
 unsigned g_mix_bpb = 4;
-double g_mix_bpm = 120.0;
 
 // RAII wrapper around miniaudio playback device, templated on callback type.
 template<class Callback>
@@ -1353,6 +1352,15 @@ compute_bpm_offset_correction(const track_info& ti,
   }
   const auto bpms = tracks | views::transform(&track_info::bpm);
   return ranges::fold_left(bpms, 0.0, std::plus<double>{}) / tracks.size();
+}
+
+[[nodiscard]] double mix_bpm(const track_database& database,
+                            const vector<path>& mix_tracks,
+                            optional<double> forced_bpm)
+{
+  if (forced_bpm) return *forced_bpm;
+  auto tracks = resolve_mix_tracks(database, mix_tracks);
+  return compute_default_mix_bpm(tracks);
 }
 
 struct MixResult {
@@ -2304,12 +2312,11 @@ void rebuild_mix_into_player(const track_database& database,
   g_player.seekPending.store(false);
   g_player.seekTargetFrames.store(0.0);
 
-  g_mix_bpm = mix.bpm;
   g_mix_bpb = mix.bpb;
   g_mix_cues = std::move(mix.cues);
 
   g_player.metro.reset_runtime();
-  g_player.metro.bpm.store(g_mix_bpm);
+  g_player.metro.bpm.store(mix.bpm);
   g_player.metro.bpb.store(max(1u, g_mix_bpb));
   if (!mix_tracks.empty()) {
     if (auto* ti0 = database.find(mix_tracks.front())) {
@@ -2469,7 +2476,7 @@ int main(int argc, char** argv)
 
   // Command-line options (after trackdb_path)
   vector<Matcher>       opt_random_exprs;
-  optional<double> opt_bpm;
+  optional<double> forced_mix_bpm;
   optional<path>   opt_export_path;
 
   // Prepare getopt_long
@@ -2505,7 +2512,7 @@ int main(int argc, char** argv)
                   v ? "must be > 0" : v.error());
           return EXIT_FAILURE;
         }
-        opt_bpm = *v;
+        forced_mix_bpm = *v;
         break;
       }
       case 'e':
@@ -2567,7 +2574,7 @@ int main(int argc, char** argv)
       return EXIT_FAILURE;
     }
     try {
-      export_current_mix(database, mix_tracks, *opt_export_path, opt_bpm);
+      export_current_mix(database, mix_tracks, *opt_export_path, forced_mix_bpm);
     } catch (std::exception &e) {
       println(cerr, "{}", e.what());
       return EXIT_FAILURE;
@@ -2594,12 +2601,12 @@ int main(int argc, char** argv)
     // prebuild the mix into the player for interactive use.
     if (!mix_tracks.empty()) {
       try {
-        rebuild_mix_into_player(database, mix_tracks, opt_bpm);
+        rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
       } catch (const std::exception& e) {
         println(cerr, "Failed to build initial mix: {}", e.what());
         return EXIT_FAILURE;
       }
-    } else if (opt_bpm) {
+    } else if (forced_mix_bpm) {
       println(cerr, "Warning: --bpm specified but no tracks in mix.");
     }
 
@@ -2660,9 +2667,9 @@ int main(int argc, char** argv)
         }
         mix_tracks.push_back(f);
         try {
-          rebuild_mix_into_player(database, mix_tracks, nullopt);
+          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
           cout << "Added. Mix size: " << mix_tracks.size()
-                    << ", BPM: " << g_mix_bpm
+                    << ", BPM: " << mix_bpm(database, mix_tracks, forced_mix_bpm)
                     << ", BPB: " << g_mix_bpb << "\n";
         } catch (const std::exception& e) {
           println(cerr, "Failed to build mix: {}", e.what());
@@ -2723,9 +2730,11 @@ int main(int argc, char** argv)
         mix_tracks.insert(mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
 
         try {
-          rebuild_mix_into_player(database, mix_tracks, nullopt);
+          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
           println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
-                  from, to, mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+                  from, to, mix_tracks.size(),
+                  mix_bpm(database, mix_tracks, forced_mix_bpm),
+                  g_mix_bpb);
         } catch (const std::exception& e) {
           println(cerr, "Failed to rebuild mix: {}", e.what());
         }
@@ -2740,7 +2749,8 @@ int main(int argc, char** argv)
           return;
         }
         if (a.empty()) {
-          println(cout, "Mix BPM: {:.2f}", g_mix_bpm);
+          const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+          println(cout, "Mix BPM: {:.2f}{}", bpm, forced_mix_bpm ? " (forced)" : "");
           return;
         }
         if (auto v = parse_number<double>(a[0]); v) {
@@ -2748,9 +2758,11 @@ int main(int argc, char** argv)
             println(cerr, "Invalid BPM: must be > 0");
             return;
           }
+          forced_mix_bpm = *v;
           try {
-            rebuild_mix_into_player(database, mix_tracks, *v);
-            println(cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
+            rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+            println(cout, "Mix BPM set to {:.2f} and recomputed.",
+                    mix_bpm(database, mix_tracks, forced_mix_bpm));
           } catch (const std::exception& e) {
             println(cerr, "Failed to rebuild mix: {}", e.what());
           }
@@ -2769,7 +2781,7 @@ int main(int argc, char** argv)
             return;
           }
           try {
-            rebuild_mix_into_player(database, mix_tracks, nullopt);
+            rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
           } catch (const std::exception& e) {
             println(cerr, "Build mix failed: {}", e.what());
             return;
@@ -2796,7 +2808,8 @@ int main(int argc, char** argv)
         }
         if (auto bar1 = parse_number<int>(a[0]); bar1) {
           int bar0 = max(0, *bar1 - 1);
-          double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / g_mix_bpm;
+          const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+          double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / bpm;
           double shift = g_player.upbeatBeats.load() * framesPerBeat
                          + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
           double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
@@ -2976,9 +2989,11 @@ int main(int argc, char** argv)
         for (auto [index, file]: views::enumerate(mix_tracks))
           println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
 
-        rebuild_mix_into_player(database, mix_tracks, nullopt);
+        rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
-                mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+                mix_tracks.size(),
+                mix_bpm(database, mix_tracks, forced_mix_bpm),
+                g_mix_bpb);
       }
     );
 
@@ -2999,7 +3014,7 @@ int main(int argc, char** argv)
         // Release any existing mix from the player to avoid holding two copies in RAM
         g_player.track.reset();
 
-        export_current_mix(database, mix_tracks, a[0]);
+        export_current_mix(database, mix_tracks, a[0], forced_mix_bpm);
       }
     );
 
