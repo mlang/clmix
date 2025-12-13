@@ -908,8 +908,8 @@ struct mix_cue {
 };
 
 vector<mix_cue> g_mix_cues;
-
 unsigned g_mix_bpb = 4;
+vector<double> g_mix_track_offsets; // per-track offsets in mix frames, same order as mix_tracks
 
 // RAII wrapper around miniaudio playback device, templated on callback type.
 template<class Callback>
@@ -1368,6 +1368,7 @@ struct MixResult {
   double bpm = 0.0;
   unsigned bpb = 4;
   vector<mix_cue> cues;
+  vector<double> track_offsets; // per-track offsets in mix frames, same order as tracks
 };
 
 // Build a rendered mix as a single Track at given sample_rate/channels.
@@ -1467,6 +1468,13 @@ struct MixResult {
     double minOff = 0.0;
     for (auto& it : items) minOff = min(minOff, it.offset);
     if (minOff < 0.0) for (auto& it : items) it.offset -= minOff;
+  }
+
+  // Expose per-track offsets in the result (in mix frames)
+  result.track_offsets.clear();
+  result.track_offsets.reserve(items.size());
+  for (auto const& it : items) {
+    result.track_offsets.push_back(it.offset);
   }
 
   // Determine total frames
@@ -2314,6 +2322,7 @@ void rebuild_mix_into_player(const track_database& database,
 
   g_mix_bpb = mix.bpb;
   g_mix_cues = std::move(mix.cues);
+  g_mix_track_offsets = std::move(mix.track_offsets);
 
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(mix.bpm);
@@ -2448,6 +2457,38 @@ void apply_intro_outro_constraints(const track_database& database,
       group.erase(group.begin() + static_cast<std::ptrdiff_t>(pick));
       group.push_back(std::move(tmp));
     }
+  }
+}
+
+// Helper: quantized seek to a given mix bar (1-based)
+void seek_to_mix_bar(int bar1,
+                     const track_database& database,
+                     const vector<path>& mix_tracks,
+                     const optional<double>& forced_mix_bpm)
+{
+  if (!g_player.track) return;
+
+  int bar0 = std::max(0, bar1 - 1);
+  const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+  double framesPerBeat =
+    (double)g_player.track->sample_rate * 60.0 / bpm;
+  double shift = g_player.upbeatBeats.load() * framesPerBeat
+                 + g_player.timeOffsetSec.load()
+                   * (double)g_player.track->sample_rate;
+  double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
+
+  size_t total_frames = g_player.track->frames();
+  if (target >= (double)total_frames) target = (double)total_frames - 1.0;
+  if (target < 0.0) target = 0.0;
+
+  if (!g_player.playing.load()) {
+    g_player.srcPos = target;
+    g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
+    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+    g_player.seekPending.store(false, std::memory_order_relaxed);
+  } else {
+    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+    g_player.seekPending.store(true, std::memory_order_release);
   }
 }
 
@@ -2722,6 +2763,7 @@ int main(int argc, char** argv)
           g_player.playing.store(false);
           g_player.track.reset();
           g_mix_cues.clear();
+          g_mix_track_offsets.clear();
           println(cout, "Removed {}. Mix is now empty.",
                   removed.filename().stem().generic_string());
           return;
@@ -2893,33 +2935,54 @@ int main(int argc, char** argv)
     );
 
     repl.register_command("seek",
-      "seek <bar> - jump to mix bar (1-based)",
+      "seek <bar>|#<track> - jump to mix bar or track mix-in point (1-based)",
       [&](command_args a) {
         if (a.size() != 1 || !g_player.track) {
-          println(cerr, "Usage: seek <bar>");
+          println(cerr, "Usage: seek <bar> or seek #<track>");
           return;
         }
-        if (auto bar1 = parse_number<int>(a[0]); bar1) {
-          int bar0 = max(0, *bar1 - 1);
-          const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
-          double framesPerBeat = (double)g_player.track->sample_rate * 60.0 / bpm;
-          double shift = g_player.upbeatBeats.load() * framesPerBeat
-                         + g_player.timeOffsetSec.load() * (double)g_player.track->sample_rate;
-          double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
-          size_t total_frames = g_player.track->frames();
-          if (target >= (double)total_frames) target = (double)total_frames - 1.0;
-          if (target < 0.0) target = 0.0;
-          if (!g_player.playing.load()) {
-            g_player.srcPos = target;
-            g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-            g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-            g_player.seekPending.store(false, std::memory_order_relaxed);
-          } else {
-            g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-            g_player.seekPending.store(true, std::memory_order_release);
+
+        const string& arg = a[0];
+
+        // Magic prefix: "#N" => seek to track N's mix-in bar
+        if (!arg.empty() && arg[0] == '#') {
+          if (g_mix_track_offsets.empty()) {
+            println(cerr, "No mix offsets available.");
+            return;
           }
+
+          string idx_str = arg.substr(1);
+          auto idxExp = parse_number<int>(idx_str);
+          if (!idxExp) {
+            println(cerr, "Invalid track index '{}': {}", idx_str, idxExp.error());
+            return;
+          }
+          int idx1 = *idxExp;
+          int n = static_cast<int>(g_mix_track_offsets.size());
+          if (idx1 < 1 || idx1 > n) {
+            println(cerr, "Track index must be between 1 and {}.", n);
+            return;
+          }
+          size_t k = static_cast<size_t>(idx1 - 1);
+
+          // Convert offset (frames) -> bar index, then reuse bar seek
+          double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+          double framesPerBeat =
+            (double)g_player.track->sample_rate * 60.0 / bpm;
+          double beatsFromZero = g_mix_track_offsets[k] / framesPerBeat;
+          double barsFromOne   =
+            std::floor(beatsFromZero / (double)g_mix_bpb) + 1.0;
+          int bar = std::max(1, (int)barsFromOne);
+
+          seek_to_mix_bar(bar, database, mix_tracks, forced_mix_bpm);
+          return;
+        }
+
+        // Normal bar seek
+        if (auto bar1 = parse_number<int>(arg); bar1) {
+          seek_to_mix_bar(*bar1, database, mix_tracks, forced_mix_bpm);
         } else {
-          println(cerr, "Invalid bar number: {}", bar1.error());
+          println(cerr, "Invalid bar or track specifier: {}", arg);
         }
       }
     );
