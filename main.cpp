@@ -2514,7 +2514,6 @@ int main(int argc, char** argv)
   Matcher outro_matcher = Matcher::tag("outro");
 
   vector<path> mix_tracks;
-  vector<path> last_list_results;  // last results from "list" command
 
   // Command-line options (after trackdb_path)
   vector<Matcher>       opt_random_exprs;
@@ -2659,6 +2658,7 @@ int main(int argc, char** argv)
     rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
 
     REPL repl;
+    vector<path> last_list_results;  // last results from "list" command
 
     repl.register_command("help",
       "List commands",
