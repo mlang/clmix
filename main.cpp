@@ -896,15 +896,9 @@ struct player_state {
 };
 
 player_state g_player;
-track_database g_db;
-
-Matcher g_intro_matcher = Matcher::tag("intro");
-Matcher g_outro_matcher = Matcher::tag("outro");
 
 uint32_t g_device_rate = 44100;
 uint32_t g_device_channels = 2;
-
-vector<path> g_mix_tracks;
 
 struct mix_cue {
   unsigned   bar;        // 1-based global bar number in the mix
@@ -1145,7 +1139,7 @@ detect_onsets(const interleaved<float>& track)
     if (fvec_get_sample(outbuf.get(), 0) != smpl_t(0)) {
       const auto t_sec = double(aubio_onset_get_last_s(onset.get()));
       if (t_sec >= 0.0 && t_sec <= track.duration()) {
-	result.push_back(t_sec);
+        result.push_back(t_sec);
       }
     }
   });
@@ -1774,7 +1768,7 @@ void register_volume_command(REPL& repl, string label) {
   );
 }
 
-void run_track_info_shell(const path& f, const path& trackdb_path)
+void run_track_info_shell(track_database& database, const path& f, const path& trackdb_path)
 {
   auto t_exp = load_track(f);
   if (!t_exp) {
@@ -1786,7 +1780,7 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
   double guessedBpm = 0.0;
 
   track_info ti;
-  if (auto* existing = g_db.find(f)) {
+  if (auto* existing = database.find(f)) {
     ti = *existing;
   } else {
     ti.filename = f;
@@ -2155,8 +2149,8 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
   sub.register_command("save",
     "Persist BPM/Beats-per-bar to trackdb",
     [&](command_args) {
-      g_db.upsert(ti);
-      save(g_db, trackdb_path);
+      database.upsert(ti);
+      save(database, trackdb_path);
       println(cout, "Saved to {}", trackdb_path.generic_string());
       dirty = false;
     }
@@ -2225,6 +2219,8 @@ void run_track_info_shell(const path& f, const path& trackdb_path)
 }
 
 // Readline completion for track-info filenames (supports spaces via quoting)
+static const track_database* g_db_for_completion = nullptr;
+
 char** clmix_completion(const char* text, int start, int end) {
   (void)end;
 
@@ -2247,7 +2243,9 @@ char** clmix_completion(const char* text, int start, int end) {
     return nullptr;
   }
 
-  // Generator that iterates over g_db.items and returns matching filenames.
+  if (!g_db_for_completion) return nullptr;
+
+  // Generator that iterates over g_db_for_completion->items and returns matching filenames.
   auto generator = [](const char* text, int state) -> char* {
     static vector<string> matches;
     static size_t index;
@@ -2256,8 +2254,10 @@ char** clmix_completion(const char* text, int start, int end) {
       matches.clear();
       index = 0;
 
+      if (!g_db_for_completion) return nullptr;
+
       string prefix(text);
-      for (const auto& [path, ti] : g_db.items) {
+      for (const auto& [path, ti] : g_db_for_completion->items) {
         (void)ti;
         const string name = path.generic_string();
         if (name.starts_with(prefix)) {
@@ -2280,14 +2280,16 @@ char** clmix_completion(const char* text, int start, int end) {
   return rl_completion_matches(text, generator);
 }
 
-// Helper: rebuild mix into global player from g_mix_tracks, optionally forcing BPM.
-void rebuild_mix_into_player(optional<double> force_bpm = nullopt)
+// Helper: rebuild mix into global player from mix_tracks, optionally forcing BPM.
+void rebuild_mix_into_player(const track_database& database,
+                             const vector<path>& mix_tracks,
+                             optional<double> force_bpm = nullopt)
 {
-  if (g_mix_tracks.empty()) {
+  if (mix_tracks.empty()) {
     throw runtime_error("No tracks in mix.");
   }
 
-  auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
+  auto tracks = resolve_mix_tracks(database, mix_tracks);
   double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
   g_player.playing.store(false);
@@ -2309,8 +2311,8 @@ void rebuild_mix_into_player(optional<double> force_bpm = nullopt)
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(g_mix_bpm);
   g_player.metro.bpb.store(max(1u, g_mix_bpb));
-  if (!g_mix_tracks.empty()) {
-    if (auto* ti0 = g_db.find(g_mix_tracks.front())) {
+  if (!mix_tracks.empty()) {
+    if (auto* ti0 = database.find(mix_tracks.front())) {
       g_player.upbeatBeats.store(ti0->upbeat_beats);
       g_player.timeOffsetSec.store(ti0->time_offset_sec);
     } else {
@@ -2333,13 +2335,15 @@ void rebuild_mix_into_player(optional<double> force_bpm = nullopt)
   return std::format("{:02d}:{:02d}:{:02d}", mm, ss, ff);
 }
 
-void export_current_mix(const path& out_path,
-  optional<double> force_bpm = nullopt
+void export_current_mix(const track_database& database,
+                        const vector<path>& mix_tracks,
+                        const path& out_path,
+                        optional<double> force_bpm = nullopt
 )
 {
-  assert(g_mix_tracks.empty() == false);
+  assert(mix_tracks.empty() == false);
 
-  auto tracks = resolve_mix_tracks(g_db, g_mix_tracks);
+  auto tracks = resolve_mix_tracks(database, mix_tracks);
   double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
 
   // Rebuild a fresh mix with current BPM and tracks, best quality SRC
@@ -2388,7 +2392,11 @@ void export_current_mix(const path& out_path,
 // Apply intro/outro constraints to a group of tracks: pick a random intro
 // candidate and move it to the front; pick a random outro candidate and move
 // it to the end. Operates only on the given group.
-void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
+void apply_intro_outro_constraints(const track_database& database,
+                                  const Matcher& intro_matcher,
+                                  const Matcher& outro_matcher,
+                                  std::vector<path>& group,
+                                  std::mt19937& rng)
 {
   if (group.empty()) return;
 
@@ -2396,8 +2404,8 @@ void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
   std::vector<size_t> intro_indices;
   intro_indices.reserve(group.size());
   for (size_t i = 0; i < group.size(); ++i) {
-    if (auto* ti = g_db.find(group[i])) {
-      if (g_intro_matcher(*ti)) {
+    if (auto* ti = database.find(group[i])) {
+      if (intro_matcher(*ti)) {
         intro_indices.push_back(i);
       }
     }
@@ -2417,8 +2425,8 @@ void apply_intro_outro_constraints(std::vector<path>& group, std::mt19937& rng)
   std::vector<size_t> outro_indices;
   outro_indices.reserve(group.size());
   for (size_t i = 0; i < group.size(); ++i) {
-    if (auto* ti = g_db.find(group[i])) {
-      if (g_outro_matcher(*ti)) {
+    if (auto* ti = database.find(group[i])) {
+      if (outro_matcher(*ti)) {
         outro_indices.push_back(i);
       }
     }
@@ -2453,7 +2461,11 @@ int main(int argc, char** argv)
 
   const path trackdb_path = argv[1];
 
-  g_db = load_database(trackdb_path);
+  track_database database = load_database(trackdb_path);
+  Matcher intro_matcher = Matcher::tag("intro");
+  Matcher outro_matcher = Matcher::tag("outro");
+
+  vector<path> mix_tracks;
 
   // Command-line options (after trackdb_path)
   vector<Matcher>       opt_random_exprs;
@@ -2501,7 +2513,7 @@ int main(int argc, char** argv)
         break;
       case 'i': {
         try {
-          g_intro_matcher = Matcher::parse(optarg);
+          intro_matcher = Matcher::parse(optarg);
         } catch (const std::exception& e) {
           println(cerr, "Invalid --intro expression '{}': {}",
                   optarg, e.what());
@@ -2511,7 +2523,7 @@ int main(int argc, char** argv)
       }
       case 'o': {
         try {
-          g_outro_matcher = Matcher::parse(optarg);
+          outro_matcher = Matcher::parse(optarg);
         } catch (const std::exception& e) {
           println(cerr, "Invalid --outro expression '{}': {}",
                   optarg, e.what());
@@ -2524,18 +2536,18 @@ int main(int argc, char** argv)
     }
   }
 
-  // If any --random was given, build g_mix_tracks from DB using one or more Matchers
+  // If any --random was given, build mix_tracks from DB using one or more Matchers
   if (!opt_random_exprs.empty()) {
-    if (g_db.items.empty()) {
+    if (database.items.empty()) {
       println(cerr, "Track DB is empty.");
       return 1;
     }
 
     std::mt19937 rng(std::random_device{}());
-    g_mix_tracks.clear();
+    mix_tracks.clear();
 
     for (const auto& matcher : opt_random_exprs) {
-      auto group = match(g_db, matcher);
+      auto group = match(database, matcher);
 
       if (group.empty()) {
         println(cerr, "No tracks with cues matching one of the --random expressions.");
@@ -2543,19 +2555,19 @@ int main(int argc, char** argv)
       }
 
       std::shuffle(group.begin(), group.end(), rng);
-      apply_intro_outro_constraints(group, rng);
-      ranges::move(group, std::back_inserter(g_mix_tracks));
+      apply_intro_outro_constraints(database, intro_matcher, outro_matcher, group, rng);
+      ranges::move(group, std::back_inserter(mix_tracks));
     }
   }
 
   // Non-interactive export mode
   if (opt_export_path) {
-    if (g_mix_tracks.empty()) {
+    if (mix_tracks.empty()) {
       println(cerr, "No tracks in mix.");
       return EXIT_FAILURE;
     }
     try {
-      export_current_mix(*opt_export_path, opt_bpm);
+      export_current_mix(database, mix_tracks, *opt_export_path, opt_bpm);
     } catch (std::exception &e) {
       println(cerr, "{}", e.what());
       return EXIT_FAILURE;
@@ -2580,9 +2592,9 @@ int main(int argc, char** argv)
 
     // If we have any mix tracks (from --random or previous DB state) and/or a forced BPM,
     // prebuild the mix into the player for interactive use.
-    if (!g_mix_tracks.empty()) {
+    if (!mix_tracks.empty()) {
       try {
-        rebuild_mix_into_player(opt_bpm);
+        rebuild_mix_into_player(database, mix_tracks, opt_bpm);
       } catch (const std::exception& e) {
         println(cerr, "Failed to build initial mix: {}", e.what());
         return EXIT_FAILURE;
@@ -2592,6 +2604,7 @@ int main(int argc, char** argv)
     }
 
     // Set up readline completion for track-info filenames (with quoting)
+    g_db_for_completion = &database;
     rl_attempted_completion_function = clmix_completion;
     // Reasonable shell-like word breaks; Readline will respect quotes when completing.
     rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
@@ -2623,12 +2636,12 @@ int main(int argc, char** argv)
           println(cerr, "Usage: track-info <file>");
           return;
         }
-        run_track_info_shell(args[0], trackdb_path);
+        run_track_info_shell(database, args[0], trackdb_path);
       }
     );
-    
+
     register_volume_command(repl, "Mix");
-    
+
     // Mix commands
     repl.register_command("add",
       "add <file> - add track to mix (opens track-info if not in DB)",
@@ -2638,17 +2651,17 @@ int main(int argc, char** argv)
           return;
         }
         path f = a[0];
-        if (!g_db.find(f)) {
-          run_track_info_shell(f, trackdb_path);
+        if (!database.find(f)) {
+          run_track_info_shell(database, f, trackdb_path);
         }
-        if (!g_db.find(f)) {
+        if (!database.find(f)) {
           println(cerr, "Track still not in DB. Aborting.");
           return;
         }
-        g_mix_tracks.push_back(f);
+        mix_tracks.push_back(f);
         try {
-          rebuild_mix_into_player(nullopt);
-          cout << "Added. Mix size: " << g_mix_tracks.size()
+          rebuild_mix_into_player(database, mix_tracks, nullopt);
+          cout << "Added. Mix size: " << mix_tracks.size()
                     << ", BPM: " << g_mix_bpm
                     << ", BPB: " << g_mix_bpb << "\n";
         } catch (const std::exception& e) {
@@ -2664,7 +2677,7 @@ int main(int argc, char** argv)
           println(cerr, "Usage: move <from> <to>");
           return;
         }
-        if (g_mix_tracks.empty()) {
+        if (mix_tracks.empty()) {
           println(cerr, "No tracks in mix.");
           return;
         }
@@ -2680,7 +2693,7 @@ int main(int argc, char** argv)
           return;
         }
 
-        int n = static_cast<int>(g_mix_tracks.size());
+        int n = static_cast<int>(mix_tracks.size());
         int from = *fromIdx;
         int to   = *toIdx;
 
@@ -2699,20 +2712,20 @@ int main(int argc, char** argv)
         }
 
         // Move element: erase+insert
-        path tmp = g_mix_tracks[fromPos];
-        g_mix_tracks.erase(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(fromPos));
+        path tmp = mix_tracks[fromPos];
+        mix_tracks.erase(mix_tracks.begin() + static_cast<std::ptrdiff_t>(fromPos));
 
         // After erase, if we removed an earlier element, the target index shifts left by 1
         if (fromPos < toPos) {
           --toPos;
         }
 
-        g_mix_tracks.insert(g_mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
+        mix_tracks.insert(mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
 
         try {
-          rebuild_mix_into_player(nullopt);
+          rebuild_mix_into_player(database, mix_tracks, nullopt);
           println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
-                  from, to, g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+                  from, to, mix_tracks.size(), g_mix_bpm, g_mix_bpb);
         } catch (const std::exception& e) {
           println(cerr, "Failed to rebuild mix: {}", e.what());
         }
@@ -2722,7 +2735,7 @@ int main(int argc, char** argv)
     repl.register_command("bpm",
       "bpm [value] - show/set mix BPM (recomputes mix)",
       [&](command_args a) {
-        if (g_mix_tracks.empty()) {
+        if (mix_tracks.empty()) {
           println(cerr, "No tracks in mix.");
           return;
         }
@@ -2736,7 +2749,7 @@ int main(int argc, char** argv)
             return;
           }
           try {
-            rebuild_mix_into_player(*v);
+            rebuild_mix_into_player(database, mix_tracks, *v);
             println(cout, "Mix BPM set to {:.2f} and recomputed.", g_mix_bpm);
           } catch (const std::exception& e) {
             println(cerr, "Failed to rebuild mix: {}", e.what());
@@ -2751,12 +2764,12 @@ int main(int argc, char** argv)
       "Start playback (mix)",
       [&](command_args) {
         if (!g_player.track) {
-          if (g_mix_tracks.empty()) {
+          if (mix_tracks.empty()) {
             println(cerr, "No tracks in mix.");
             return;
           }
           try {
-            rebuild_mix_into_player(nullopt);
+            rebuild_mix_into_player(database, mix_tracks, nullopt);
           } catch (const std::exception& e) {
             println(cerr, "Build mix failed: {}", e.what());
             return;
@@ -2824,7 +2837,7 @@ int main(int argc, char** argv)
       [&](command_args) {
         // Count how many tracks have each tag
         std::map<std::string, size_t> counts;
-        for (const auto& [path, ti] : g_db.items) {
+        for (const auto& [path, ti] : database.items) {
           (void)path;
           for (const auto& tag : ti.tags) {
             ++counts[tag];
@@ -2862,7 +2875,7 @@ int main(int argc, char** argv)
       "list [tag_expr] - list tracks in DB matching tag/bpm expression "
       "(e.g. \">=140bpm & <150bpm | techno\")",
       [&](command_args args) {
-        if (g_db.items.empty()) {
+        if (database.items.empty()) {
           println(cerr, "Track DB is empty.");
           return;
         }
@@ -2883,7 +2896,7 @@ int main(int argc, char** argv)
           }
         }
 
-        auto matched = g_db.items | views::values | views::filter(matcher);
+        auto matched = database.items | views::values | views::filter(matcher);
         for (const auto& [index, info]: views::enumerate(matched)) {
           cout << std::setw(3) << (index + 1) << ". "
                << info.filename.generic_string()
@@ -2912,17 +2925,17 @@ int main(int argc, char** argv)
       "random [expr1 [expr2 ...]] - build mix from DB; "
       "no expr => all tracks; multiple exprs => append random block per expr",
       [&](command_args args) {
-        if (g_db.items.empty()) {
+        if (database.items.empty()) {
           println(cerr, "Track DB is empty.");
           return;
         }
 
         std::mt19937 rng(std::random_device{}());
-        g_mix_tracks.clear();
+        mix_tracks.clear();
 
         auto append_block_for_matcher = [&](const Matcher& matcher,
                                             std::string_view desc) -> bool {
-          auto group = match(g_db, matcher);
+          auto group = match(database, matcher);
           if (group.empty()) {
             if (desc.empty()) {
               println(cerr, "No tracks with cues in DB.");
@@ -2933,8 +2946,8 @@ int main(int argc, char** argv)
             return false;
           }
           std::shuffle(group.begin(), group.end(), rng);
-          apply_intro_outro_constraints(group, rng);
-          ranges::move(group, std::back_inserter(g_mix_tracks));
+          apply_intro_outro_constraints(database, intro_matcher, outro_matcher, group, rng);
+          ranges::move(group, std::back_inserter(mix_tracks));
           return true;
         };
 
@@ -2949,23 +2962,23 @@ int main(int argc, char** argv)
               matcher = Matcher::parse(expr);
             } catch (const std::exception& e) {
               println(cerr, "Invalid tag expression '{}': {}", expr, e.what());
-              g_mix_tracks.clear();
+              mix_tracks.clear();
               return;
             }
             if (!append_block_for_matcher(matcher, expr)) {
-              g_mix_tracks.clear();
+              mix_tracks.clear();
               return;
             }
           }
         }
 
         println(cout, "Track order:");
-        for (auto [index, file]: views::enumerate(g_mix_tracks))
+        for (auto [index, file]: views::enumerate(mix_tracks))
           println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
-        
-        rebuild_mix_into_player(nullopt);
+
+        rebuild_mix_into_player(database, mix_tracks, nullopt);
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
-                g_mix_tracks.size(), g_mix_bpm, g_mix_bpb);
+                mix_tracks.size(), g_mix_bpm, g_mix_bpb);
       }
     );
 
@@ -2976,17 +2989,17 @@ int main(int argc, char** argv)
           println(cerr, "Usage: export <file.wav>");
           return;
         }
-        if (g_mix_tracks.empty()) {
+        if (mix_tracks.empty()) {
           println(cerr, "No tracks in mix.");
           return;
         }
 
-	// Stop playback to avoid concurrent access while rendering/exporting
-	g_player.playing.store(false);
-	// Release any existing mix from the player to avoid holding two copies in RAM
-	g_player.track.reset();
+        // Stop playback to avoid concurrent access while rendering/exporting
+        g_player.playing.store(false);
+        // Release any existing mix from the player to avoid holding two copies in RAM
+        g_player.track.reset();
 
-        export_current_mix(a[0]);
+        export_current_mix(database, mix_tracks, a[0]);
       }
     );
 
