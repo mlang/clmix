@@ -909,7 +909,6 @@ struct mix_cue {
 
 vector<mix_cue> g_mix_cues;
 unsigned g_mix_bpb = 4;
-vector<double> g_mix_track_offsets; // per-track offsets in mix frames, same order as mix_tracks
 
 // RAII wrapper around miniaudio playback device, templated on callback type.
 template<class Callback>
@@ -1358,9 +1357,7 @@ compute_bpm_offset_correction(const track_info& ti,
                             const vector<path>& mix_tracks,
                             optional<double> forced_bpm)
 {
-  if (forced_bpm) return *forced_bpm;
-  auto tracks = resolve_mix_tracks(database, mix_tracks);
-  return compute_default_mix_bpm(tracks);
+  return forced_bpm.value_or(compute_default_mix_bpm(resolve_mix_tracks(database, mix_tracks)));
 }
 
 struct MixResult {
@@ -2296,48 +2293,6 @@ char** clmix_completion(const char* text, int start, int end) {
   return rl_completion_matches(text, generator);
 }
 
-// Helper: rebuild mix into global player from mix_tracks, optionally forcing BPM.
-void rebuild_mix_into_player(const track_database& database,
-                             const vector<path>& mix_tracks,
-                             optional<double> force_bpm = nullopt)
-{
-  if (mix_tracks.empty()) {
-    throw runtime_error("No tracks in mix.");
-  }
-
-  auto tracks = resolve_mix_tracks(database, mix_tracks);
-  double bpm = force_bpm.value_or(compute_default_mix_bpm(tracks));
-
-  g_player.playing.store(false);
-  g_player.track.reset();
-
-  MixResult mix = build_mix(
-    tracks, bpm, g_device_rate, g_device_channels
-  );
-
-  g_player.track = std::make_shared<interleaved<float>>(std::move(mix.audio));
-  g_player.srcPos = 0.0;
-  g_player.seekPending.store(false);
-  g_player.seekTargetFrames.store(0.0);
-
-  g_mix_bpb = mix.bpb;
-  g_mix_cues = std::move(mix.cues);
-  g_mix_track_offsets = std::move(mix.track_offsets);
-
-  g_player.metro.reset_runtime();
-  g_player.metro.bpm.store(mix.bpm);
-  g_player.metro.bpb.store(max(1u, g_mix_bpb));
-  if (!mix_tracks.empty()) {
-    if (auto* ti0 = database.find(mix_tracks.front())) {
-      g_player.upbeatBeats.store(ti0->upbeat_beats);
-      g_player.timeOffsetSec.store(ti0->time_offset_sec);
-    } else {
-      g_player.upbeatBeats.store(0.0);
-      g_player.timeOffsetSec.store(0.0);
-    }
-  }
-}
-
 [[nodiscard]] std::string format_cue_time(double t_sec)
 {
   if (t_sec < 0.0) t_sec = 0.0;
@@ -2638,11 +2593,49 @@ int main(int argc, char** argv)
     g_device_rate = device.sample_rate();
     g_device_channels = device.channels();
 
+    vector<double> mix_track_offsets; // per-track offsets in mix frames, same order as mix_tracks
+    auto rebuild_mix_into_player = [&]() {
+      if (mix_tracks.empty()) {
+	throw runtime_error("No tracks in mix.");
+      }
+
+      g_player.playing.store(false);
+      g_player.track.reset();
+
+      MixResult mix = build_mix(
+	resolve_mix_tracks(database, mix_tracks),
+        mix_bpm(database, mix_tracks, forced_mix_bpm),
+        g_device_rate, g_device_channels
+      );
+
+      g_player.track = std::make_shared<interleaved<float>>(std::move(mix.audio));
+      g_player.srcPos = 0.0;
+      g_player.seekPending.store(false);
+      g_player.seekTargetFrames.store(0.0);
+
+      g_mix_bpb = mix.bpb;
+      g_mix_cues = std::move(mix.cues);
+      mix_track_offsets = std::move(mix.track_offsets);
+
+      g_player.metro.reset_runtime();
+      g_player.metro.bpm.store(mix.bpm);
+      g_player.metro.bpb.store(max(1u, g_mix_bpb));
+      if (!mix_tracks.empty()) {
+	if (auto* ti0 = database.find(mix_tracks.front())) {
+	  g_player.upbeatBeats.store(ti0->upbeat_beats);
+	  g_player.timeOffsetSec.store(ti0->time_offset_sec);
+	} else {
+	  g_player.upbeatBeats.store(0.0);
+	  g_player.timeOffsetSec.store(0.0);
+	}
+      }
+    };
+
     // If we have any mix tracks (from --random or previous DB state) and/or a forced BPM,
     // prebuild the mix into the player for interactive use.
     if (!mix_tracks.empty()) {
       try {
-        rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+        rebuild_mix_into_player();
       } catch (const std::exception& e) {
         println(cerr, "Failed to build initial mix: {}", e.what());
         return EXIT_FAILURE;
@@ -2747,7 +2740,7 @@ int main(int argc, char** argv)
         }
         mix_tracks.push_back(f);
         try {
-          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+          rebuild_mix_into_player();
           cout << "Added. Mix size: " << mix_tracks.size()
                     << ", BPM: " << mix_bpm(database, mix_tracks, forced_mix_bpm)
                     << ", BPB: " << g_mix_bpb << "\n";
@@ -2791,14 +2784,14 @@ int main(int argc, char** argv)
           g_player.playing.store(false);
           g_player.track.reset();
           g_mix_cues.clear();
-          g_mix_track_offsets.clear();
+          mix_track_offsets.clear();
           println(cout, "Removed {}. Mix is now empty.",
                   removed.filename().stem().generic_string());
           return;
         }
 
         try {
-          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+          rebuild_mix_into_player();
           println(cout, "Removed {}. Mix size: {}, BPM: {}, BPB: {}",
                   removed.filename().stem().generic_string(),
                   mix_tracks.size(),
@@ -2864,7 +2857,7 @@ int main(int argc, char** argv)
         mix_tracks.insert(mix_tracks.begin() + static_cast<std::ptrdiff_t>(toPos), std::move(tmp));
 
         try {
-          rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+          rebuild_mix_into_player();
           println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
                   from, to, mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
@@ -2904,7 +2897,7 @@ int main(int argc, char** argv)
             constexpr double eps = 1e-9;
             if (abs(new_bpm - old_bpm) > eps) {
               try {
-                rebuild_mix_into_player(database, mix_tracks, nullopt);
+                rebuild_mix_into_player();
                 println(cout, "Mix BPM set to auto ({:.2f}) and recomputed.", new_bpm);
               } catch (const std::exception& e) {
                 println(cerr, "Failed to rebuild mix: {}", e.what());
@@ -2923,7 +2916,7 @@ int main(int argc, char** argv)
           }
           forced_mix_bpm = *v;
           try {
-            rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+            rebuild_mix_into_player();
             println(cout, "Mix BPM set to {:.2f} and recomputed.",
                     mix_bpm(database, mix_tracks, forced_mix_bpm));
           } catch (const std::exception& e) {
@@ -2944,7 +2937,7 @@ int main(int argc, char** argv)
             return;
           }
           try {
-            rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+            rebuild_mix_into_player();
           } catch (const std::exception& e) {
             println(cerr, "Build mix failed: {}", e.what());
             return;
@@ -2974,30 +2967,30 @@ int main(int argc, char** argv)
 
         // Magic prefix: "#N" => seek to track N's mix-in bar
         if (!arg.empty() && arg[0] == '#') {
-          if (g_mix_track_offsets.empty()) {
+          if (mix_track_offsets.empty()) {
             println(cerr, "No mix offsets available.");
             return;
           }
 
           string idx_str = arg.substr(1);
-          auto idxExp = parse_number<int>(idx_str);
+          auto idxExp = parse_number<unsigned>(idx_str);
           if (!idxExp) {
             println(cerr, "Invalid track index '{}': {}", idx_str, idxExp.error());
             return;
           }
-          int idx1 = *idxExp;
-          int n = static_cast<int>(g_mix_track_offsets.size());
+          auto idx1 = *idxExp;
+          auto n = unsigned(mix_track_offsets.size());
           if (idx1 < 1 || idx1 > n) {
             println(cerr, "Track index must be between 1 and {}.", n);
             return;
           }
-          size_t k = static_cast<size_t>(idx1 - 1);
+          size_t k = size_t(idx1 - 1);
 
           // Convert offset (frames) -> bar index, then reuse bar seek
           double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
           double framesPerBeat =
             (double)g_player.track->sample_rate * 60.0 / bpm;
-          double beatsFromZero = g_mix_track_offsets[k] / framesPerBeat;
+          double beatsFromZero = mix_track_offsets[k] / framesPerBeat;
           double barsFromOne   =
             std::floor(beatsFromZero / (double)g_mix_bpb) + 1.0;
           int bar = std::max(1, (int)barsFromOne);
@@ -3178,7 +3171,7 @@ int main(int argc, char** argv)
         for (auto [index, file]: views::enumerate(mix_tracks))
           println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
 
-        rebuild_mix_into_player(database, mix_tracks, forced_mix_bpm);
+        rebuild_mix_into_player();
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
                 mix_tracks.size(),
                 mix_bpm(database, mix_tracks, forced_mix_bpm),
