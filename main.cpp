@@ -907,6 +907,9 @@ struct mix_cue {
   double     time_sec;   // absolute time in the rendered mix (seconds)
 };
 
+vector<mix_cue> g_mix_cues;
+unsigned g_mix_bpb = 4;
+
 // RAII wrapper around miniaudio playback device, templated on callback type.
 template<class Callback>
 class miniplayer {
@@ -2229,6 +2232,8 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
 }
 
 // Readline completion for track-info filenames (supports spaces via quoting)
+static const track_database* g_db_for_completion = nullptr;
+
 char** clmix_completion(const char* text, int start, int end) {
   (void)end;
 
@@ -2251,9 +2256,41 @@ char** clmix_completion(const char* text, int start, int end) {
     return nullptr;
   }
 
-  // We don't have DB access here; main wires completion via global readline state only.
-  // So we just fall back to default filename completion.
-  return nullptr;
+  if (!g_db_for_completion) return nullptr;
+
+  // Generator that iterates over g_db_for_completion->items and returns matching filenames.
+  auto generator = [](const char* text, int state) -> char* {
+    static vector<string> matches;
+    static size_t index;
+
+    if (state == 0) {
+      matches.clear();
+      index = 0;
+
+      if (!g_db_for_completion) return nullptr;
+
+      string prefix(text);
+      for (const auto& [path, ti] : g_db_for_completion->items) {
+        (void)ti;
+        const string name = path.generic_string();
+        if (name.starts_with(prefix)) {
+          matches.push_back(name);
+        }
+      }
+    }
+
+    if (index >= matches.size()) {
+      return nullptr;
+    }
+
+    const string& s = matches[index++];
+    char* out = static_cast<char*>(std::malloc(s.size() + 1));
+    if (!out) return nullptr;
+    std::memcpy(out, s.c_str(), s.size() + 1);
+    return out;
+  };
+
+  return rl_completion_matches(text, generator);
 }
 
 [[nodiscard]] std::string format_cue_time(double t_sec)
@@ -2375,6 +2412,38 @@ void apply_intro_outro_constraints(const track_database& database,
       group.erase(group.begin() + static_cast<std::ptrdiff_t>(pick));
       group.push_back(std::move(tmp));
     }
+  }
+}
+
+// Helper: quantized seek to a given mix bar (1-based)
+void seek_to_mix_bar(int bar1,
+                     const track_database& database,
+                     const vector<path>& mix_tracks,
+                     const optional<double>& forced_mix_bpm)
+{
+  if (!g_player.track) return;
+
+  int bar0 = std::max(0, bar1 - 1);
+  const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+  double framesPerBeat =
+    (double)g_player.track->sample_rate * 60.0 / bpm;
+  double shift = g_player.upbeatBeats.load() * framesPerBeat
+                 + g_player.timeOffsetSec.load()
+                   * (double)g_player.track->sample_rate;
+  double target = shift + (double)bar0 * (double)g_mix_bpb * framesPerBeat;
+
+  size_t total_frames = g_player.track->frames();
+  if (target >= (double)total_frames) target = (double)total_frames - 1.0;
+  if (target < 0.0) target = 0.0;
+
+  if (!g_player.playing.load()) {
+    g_player.srcPos = target;
+    g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
+    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+    g_player.seekPending.store(false, std::memory_order_relaxed);
+  } else {
+    g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
+    g_player.seekPending.store(true, std::memory_order_release);
   }
 }
 
@@ -2525,19 +2594,16 @@ int main(int argc, char** argv)
     g_device_channels = device.channels();
 
     vector<double> mix_track_offsets; // per-track offsets in mix frames, same order as mix_tracks
-    vector<mix_cue> mix_cues;
-    unsigned mix_bpb = 4;
-
     auto rebuild_mix_into_player = [&]() {
       if (mix_tracks.empty()) {
-        throw runtime_error("No tracks in mix.");
+	throw runtime_error("No tracks in mix.");
       }
 
       g_player.playing.store(false);
       g_player.track.reset();
 
       MixResult mix = build_mix(
-        resolve_mix_tracks(database, mix_tracks),
+	resolve_mix_tracks(database, mix_tracks),
         mix_bpm(database, mix_tracks, forced_mix_bpm),
         g_device_rate, g_device_channels
       );
@@ -2547,56 +2613,21 @@ int main(int argc, char** argv)
       g_player.seekPending.store(false);
       g_player.seekTargetFrames.store(0.0);
 
-      mix_bpb = mix.bpb;
-      mix_cues = std::move(mix.cues);
+      g_mix_bpb = mix.bpb;
+      g_mix_cues = std::move(mix.cues);
       mix_track_offsets = std::move(mix.track_offsets);
 
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(mix.bpm);
-      g_player.metro.bpb.store(max(1u, mix_bpb));
+      g_player.metro.bpb.store(max(1u, g_mix_bpb));
       if (!mix_tracks.empty()) {
-        if (auto* ti0 = database.find(mix_tracks.front())) {
-          g_player.upbeatBeats.store(ti0->upbeat_beats);
-          g_player.timeOffsetSec.store(ti0->time_offset_sec);
-        } else {
-          g_player.upbeatBeats.store(0.0);
-          g_player.timeOffsetSec.store(0.0);
-        }
-      }
-    };
-
-    auto seek_to_mix_bar = [&](int bar1) {
-      if (!g_player.track) return;
-
-      int bar0 = std::max(0, bar1 - 1);
-      const double bpm_eff = mix_bpm(database, mix_tracks, forced_mix_bpm);
-
-      double framesPerBeat =
-        static_cast<double>(g_player.track->sample_rate) * 60.0 / bpm_eff;
-
-      double shift =
-        g_player.upbeatBeats.load() * framesPerBeat +
-        g_player.timeOffsetSec.load() *
-          static_cast<double>(g_player.track->sample_rate);
-
-      double target =
-        shift + static_cast<double>(bar0) *
-                  static_cast<double>(mix_bpb) * framesPerBeat;
-
-      size_t total_frames = g_player.track->frames();
-      if (target >= static_cast<double>(total_frames))
-        target = static_cast<double>(total_frames) - 1.0;
-      if (target < 0.0)
-        target = 0.0;
-
-      if (!g_player.playing.load()) {
-        g_player.srcPos = target;
-        g_player.metro.prepare_after_seek(target - shift, framesPerBeat);
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(false, std::memory_order_relaxed);
-      } else {
-        g_player.seekTargetFrames.store(target, std::memory_order_relaxed);
-        g_player.seekPending.store(true, std::memory_order_release);
+	if (auto* ti0 = database.find(mix_tracks.front())) {
+	  g_player.upbeatBeats.store(ti0->upbeat_beats);
+	  g_player.timeOffsetSec.store(ti0->time_offset_sec);
+	} else {
+	  g_player.upbeatBeats.store(0.0);
+	  g_player.timeOffsetSec.store(0.0);
+	}
       }
     };
 
@@ -2614,6 +2645,7 @@ int main(int argc, char** argv)
     }
 
     // Set up readline completion for track-info filenames (with quoting)
+    g_db_for_completion = &database;
     rl_attempted_completion_function = clmix_completion;
     // Reasonable shell-like word breaks; Readline will respect quotes when completing.
     rl_basic_word_break_characters = const_cast<char*>(" \t\n\"'`@$><=;|&{(");
@@ -2711,7 +2743,7 @@ int main(int argc, char** argv)
           rebuild_mix_into_player();
           cout << "Added. Mix size: " << mix_tracks.size()
                     << ", BPM: " << mix_bpm(database, mix_tracks, forced_mix_bpm)
-                    << ", BPB: " << mix_bpb << "\n";
+                    << ", BPB: " << g_mix_bpb << "\n";
         } catch (const std::exception& e) {
           println(cerr, "Failed to build mix: {}", e.what());
         }
@@ -2751,7 +2783,7 @@ int main(int argc, char** argv)
         if (mix_tracks.empty()) {
           g_player.playing.store(false);
           g_player.track.reset();
-          mix_cues.clear();
+          g_mix_cues.clear();
           mix_track_offsets.clear();
           println(cout, "Removed {}. Mix is now empty.",
                   removed.filename().stem().generic_string());
@@ -2764,7 +2796,7 @@ int main(int argc, char** argv)
                   removed.filename().stem().generic_string(),
                   mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
-                  mix_bpb);
+                  g_mix_bpb);
           print_mix_tracks();
         } catch (const std::exception& e) {
           println(cerr, "Failed to rebuild mix: {}", e.what());
@@ -2829,7 +2861,7 @@ int main(int argc, char** argv)
           println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
                   from, to, mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
-                  mix_bpb);
+                  g_mix_bpb);
           print_mix_tracks();
         } catch (const std::exception& e) {
           println(cerr, "Failed to rebuild mix: {}", e.what());
@@ -2960,16 +2992,16 @@ int main(int argc, char** argv)
             (double)g_player.track->sample_rate * 60.0 / bpm;
           double beatsFromZero = mix_track_offsets[k] / framesPerBeat;
           double barsFromOne   =
-            std::floor(beatsFromZero / (double)mix_bpb) + 1.0;
+            std::floor(beatsFromZero / (double)g_mix_bpb) + 1.0;
           int bar = std::max(1, (int)barsFromOne);
 
-          seek_to_mix_bar(bar);
+          seek_to_mix_bar(bar, database, mix_tracks, forced_mix_bpm);
           return;
         }
 
         // Normal bar seek
         if (auto bar1 = parse_number<int>(arg); bar1) {
-          seek_to_mix_bar(*bar1);
+          seek_to_mix_bar(*bar1, database, mix_tracks, forced_mix_bpm);
         } else {
           println(cerr, "Invalid bar or track specifier: {}", arg);
         }
@@ -2979,11 +3011,11 @@ int main(int argc, char** argv)
     repl.register_command("cues",
       "List all cue points in current mix",
       [&](command_args) {
-        if (mix_cues.empty()) {
+        if (g_mix_cues.empty()) {
           println(cout, "(no cues)");
           return;
         }
-        for (const auto& c : mix_cues) {
+        for (const auto& c : g_mix_cues) {
           println(cout, "mix bar {}  |  track: {}  |  track bar {}",
                   c.bar, c.track.filename().stem().generic_string(), c.local_bar);
         }
@@ -3143,7 +3175,7 @@ int main(int argc, char** argv)
         println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
                 mix_tracks.size(),
                 mix_bpm(database, mix_tracks, forced_mix_bpm),
-                mix_bpb);
+                g_mix_bpb);
       }
     );
 
