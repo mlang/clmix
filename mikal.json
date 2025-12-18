@@ -398,6 +398,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 157.0,
+      "cue_bars": [
+        84,
+        252
+      ],
+      "filename": "Acidcore/Narcosis/Narcosis 17/03 - Erlenmeyer - Andromeda.flac",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 160.0,
       "cue_bars": [
         53,
