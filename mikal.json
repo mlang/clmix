@@ -491,6 +491,36 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 145.0,
+      "cue_bars": [
+        49,
+        279
+      ],
+      "filename": "Acidcore/Violent Cases/019 - Enko \"Children Of The Night\" EP/02 - B1: Afraid Of Me.flac",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 148.325,
+      "cue_bars": [
+        65,
+        201
+      ],
+      "filename": "Acidcore/Violent Cases/Mysteries #4/Pozek & 1NC1N - Pozek & 1NC1N - Below II _ Pozek & 1NC1N _ Paralyzed Dreams-1645135367.mp3",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.018073234513636294,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 100.0,
       "cue_bars": [
         33,
@@ -1475,6 +1505,21 @@
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 143.99967876098515,
+      "cue_bars": [
+        81,
+        265
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Purify/05 - Rising Dust - Hillel.flac",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.11,
+      "upbeat_beats": 1.0
     },
     {
       "beats_per_bar": 4,
