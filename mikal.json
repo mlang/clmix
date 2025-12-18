@@ -398,6 +398,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 135.0,
+      "cue_bars": [
+        17,
+        209
+      ],
+      "filename": "Acidcore/MultiplanSounds/Van der Wiese & Akor - Open The Door.flac",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 157.0,
       "cue_bars": [
         84,
@@ -457,6 +472,21 @@
         "psy"
       ],
       "time_offset_sec": 0.15424901528174137,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 140.0,
+      "cue_bars": [
+        17,
+        257
+      ],
+      "filename": "Acidcore/Violent Cases/006 - Van Der Wiese/Violent Cases Records - Violent Cases 006 - Van Der Wiese - 01 Interstellar Overdrive.flac",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1387,6 +1417,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 135.0,
+      "cue_bars": [
+        49,
+        377
+      ],
+      "filename": "Psytrance/Shamanic Tales/Out of Orbit - Wisdom of the Crowds/Out of Orbit & Rocky Tilbor - Out of Orbit & Rocky Tilbor - Voodoo [2736121040].mp3",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 1.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 137.99952235670048,
       "cue_bars": [
         94,
@@ -1399,6 +1444,51 @@
         "psy"
       ],
       "time_offset_sec": -0.272,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 140.0,
+      "cue_bars": [
+        53,
+        227
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Pollination/Rising Dust - Fire Under Water [1498158515].mp3",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 146.0,
+      "cue_bars": [
+        29,
+        209
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Pollination/Vibe Tribe - Vibe Tribe - Albert Balbert (Rising Dust Remix) [1541231455].mp3",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 142.0,
+      "cue_bars": [
+        21,
+        253
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Purify/07 - Rising Dust & Bubble - B Water.flac",
+      "tags": [
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1489,6 +1579,21 @@
       "filename": "Psytrance/Shamanic Tales/Rising Dust - Shofar/08 - Rising Dust - Don't Stop.flac",
       "tags": [
         "RisingDust",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 140.0,
+      "cue_bars": [
+        53,
+        330
+      ],
+      "filename": "Psytrance/Shamanic Tales/Rising Dust - Shofar/09 - Rising Dust - Hashualim.flac",
+      "tags": [
+        "acid",
         "psy"
       ],
       "time_offset_sec": 0.0,
