@@ -552,18 +552,6 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 130.0,
-      "cue_bars": [
-        61,
-        385
-      ],
-      "filename": "Ambient/Desert Dwellers/The Great Mystery Remixes Part 2/Desert Dwellers - Walking Between (Supersillyus Rewiggling) [3865310196].mp3",
-      "tags": [],
-      "time_offset_sec": 0.0,
-      "upbeat_beats": 0.0
-    },
-    {
-      "beats_per_bar": 4,
       "bpm": 108.0,
       "cue_bars": [
         33,
@@ -576,6 +564,33 @@
         "vocal"
       ],
       "time_offset_sec": -0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 130.0,
+      "cue_bars": [
+        61,
+        385
+      ],
+      "filename": "Ambient/Desert Dwellers/The Great Mystery Remixes Part 2/Desert Dwellers - Walking Between (Supersillyus Rewiggling) [3865310196].mp3",
+      "tags": [],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 134.0,
+      "cue_bars": [
+        45,
+        293
+      ],
+      "filename": "Ambient/Entheogenic/Anthropomorphic/02 - Tonglen.flac",
+      "tags": [
+        "psy",
+        "step"
+      ],
+      "time_offset_sec": 0.03,
       "upbeat_beats": 0.0
     },
     {
