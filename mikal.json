@@ -493,6 +493,21 @@
       "beats_per_bar": 4,
       "bpm": 145.0,
       "cue_bars": [
+        33,
+        273
+      ],
+      "filename": "Acidcore/Violent Cases/006 - Van Der Wiese/Violent Cases Records - Violent Cases 006 - Van Der Wiese - 02 Leaving Earth.flac",
+      "tags": [
+        "acid",
+        "core"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 145.0,
+      "cue_bars": [
         49,
         279
       ],
