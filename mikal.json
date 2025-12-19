@@ -714,6 +714,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.00186502893314,
+      "cue_bars": [
+        81,
+        289
+      ],
+      "filename": "DnB/Commercial Suicide Records/Klute - Saviour [3278305208].mp3",
+      "tags": [
+        "dnb",
+        "vocal"
+      ],
+      "time_offset_sec": -0.03,
+      "upbeat_beats": 1.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         49,
