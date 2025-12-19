@@ -564,6 +564,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 108.0,
+      "cue_bars": [
+        33,
+        187
+      ],
+      "filename": "Ambient/Desert Dwellers/Liquid Bloom & PERE - Pájaro Azul (Feat. Isla Espiral)-1677056234.mp3",
+      "tags": [
+        "melodic",
+        "techno",
+        "vocal"
+      ],
+      "time_offset_sec": -0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 160.0,
       "cue_bars": [
         17,
