@@ -1070,31 +1070,51 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   assert(max_attack_db_per_s > 0.0f);
   assert(max_release_db_per_s > 0.0f);
 
-  // 1) Required attenuation (dB) to meet ceiling at each frame (computed on demand)
-  auto required_att_dB = [&](size_t f) -> float {
-    float pk = buf[f].peak();
-    // attenuation needed in dB (>= 0)
-    return (pk > 0.f) ? max(0.f, ampdb(pk) - ceiling_dB) : 0.f;
+  auto required
+    = views::iota(size_t{0}, frames)
+    | views::transform([&buf, ceiling_dB](size_t f) -> float {
+        const float pk = buf[f].peak();
+        // required gain in dB (<= 0)
+        return (pk > 0.f) ? min(0.f, ceiling_dB - ampdb(pk)) : 0.f;
+      });
+
+  class apply_gain {
+    interleaved<float> *buf;
+    size_t i = 0;
+
+  public:
+    using difference_type = std::ptrdiff_t;
+
+    explicit apply_gain(interleaved<float>& b) : buf(&b) {}
+
+    apply_gain& operator*() noexcept { return *this; }
+    apply_gain& operator++() noexcept { ++i; return *this; }
+    apply_gain operator++(int) noexcept {
+      auto tmp = *this; ++(*this); return tmp;
+    }
+
+    apply_gain& operator=(float gain_dB) noexcept
+    {
+      (*buf)[i] *= clamp(dbamp(gain_dB), 0.0f, 1.0f);
+      return *this;
+    }
   };
+  static_assert(std::output_iterator<apply_gain, float>);
 
-  // 2) Backward pass: limit how fast attenuation may increase (attack slope)
-  const float attack_step  = max_attack_db_per_s / static_cast<float>(sr);
-  vector<float> att(frames, 0.f);
-  att[frames - 1] = required_att_dB(frames - 1);
-  for (size_t i = frames - 1; i-- > 0; ) {
-    att[i] = max(required_att_dB(i), att[i + 1] - attack_step);
-  }
+  vector<float> gain_db(frames);
 
-  // 3) Forward pass: limit how fast attenuation may decrease (release slope)
-  const float release_step = max_release_db_per_s / static_cast<float>(sr);
-  for (size_t i = 1; i < frames; ++i) {
-    att[i] = max(att[i], att[i - 1] - release_step);
-  }
+  std::inclusive_scan(
+    ranges::rbegin(required), ranges::rend(required), gain_db.rbegin(),
+    [attack = max_attack_db_per_s / sr](float prev, float req) {
+      return min(req, prev + attack);
+    }
+  );
 
-  // 4) Apply gain: g = dbamp(-att_dB) clamped to [0,1]
-  for (size_t f = 0; f < frames; ++f) {
-    buf[f] *= clamp(dbamp(-att[f]), 0.0f, 1.0f);
-  }
+  std::inclusive_scan(gain_db.begin(), gain_db.end(), apply_gain{buf},
+    [release = max_release_db_per_s / sr](float prev, float cur) {
+      return min(cur, prev + release);
+    }
+  );
 }
 
 // Transient detection method selector for autogrid
