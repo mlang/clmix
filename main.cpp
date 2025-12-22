@@ -1759,7 +1759,7 @@ void register_volume_command(REPL& repl, string label) {
       if (a.empty()) {
         float db = g_player.trackGainDB.load();
         float lin = dbamp(db);
-        println(cout, "{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
+        println("{} volume: {:.2f} dB (x{:.3f})", label, db, lin);
         return;
       }
       string s = a[0];
@@ -1773,7 +1773,7 @@ void register_volume_command(REPL& repl, string label) {
         const float db = clamp(*v, -60.f, 12.f);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
-        println(cout, "{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
+        println("{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
       } else {
         println(cerr, "Invalid dB value: {}", v.error());
       }
@@ -1809,13 +1809,13 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     }
   }
 
-  println(cout, "Opened {}", f.generic_string());
+  println("Opened {}", f.generic_string());
   if (guessedBpm > 0)
-    println(cout, "Guessed BPM: {:.2f}", guessedBpm);
-  println(cout, "BPM: {:.2f}", ti.bpm);
-  println(cout, "Beats/bar: {}", ti.beats_per_bar);
-  println(cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
-  println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+    println("Guessed BPM: {:.2f}", guessedBpm);
+  println("BPM: {:.2f}", ti.bpm);
+  println("Beats/bar: {}", ti.beats_per_bar);
+  println("Upbeat (beats): {:.3f}", ti.upbeat_beats);
+  println("Time offset (s): {:.3f}", ti.time_offset_sec);
 
   // Initialize player state for this track (not playing yet)
   g_player.track = tr;
@@ -1836,7 +1836,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
     double beats = (double)total_frames / framesPerBeat;
     double bars = beats / static_cast<double>(bpbNow);
-    println(cout, "Estimated bars: {:.2f}", bars);
+    println("Estimated bars: {:.2f}", bars);
   };
   print_estimated_bars();
 
@@ -1855,7 +1855,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "bpm [value] - get/set BPM",
     [&](command_args a) {
       if (a.empty()) {
-        println(cout, "BPM: {:.2f}", g_player.metro.bpm.load());
+        println("BPM: {:.2f}", g_player.metro.bpm.load());
         return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
@@ -1877,7 +1877,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "bpb [value] - get/set beats per bar",
     [&](command_args a) {
       if (a.empty()) {
-        println(cout, "Beats/bar: {}", g_player.metro.bpb.load());
+        println("Beats/bar: {}", g_player.metro.bpb.load());
         return;
       }
       if (auto v = parse_number<unsigned>(a[0]); v) {
@@ -1899,7 +1899,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "upbeat [beats] - get/set upbeat in beats (can be negative)",
     [&](command_args a) {
       if (a.empty()) {
-        println(cout, "Upbeat (beats): {:.3f}", ti.upbeat_beats);
+        println("Upbeat (beats): {:.3f}", ti.upbeat_beats);
         return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
@@ -1917,7 +1917,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "offset [seconds] - get/set time offset in seconds (can be negative)",
     [&](command_args a) {
       if (a.empty()) {
-        println(cout, "Time offset (s): {:.3f}", ti.time_offset_sec);
+        println("Time offset (s): {:.3f}", ti.time_offset_sec);
         return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
@@ -1949,7 +1949,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
           dirty = true;
         }
         if (ti.cue_bars.empty()) {
-          println(cout, "(no cues)");
+          println("(no cues)");
         } else {
           cout << "Cues: ";
           for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
@@ -1985,7 +1985,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "List cue bars",
     [&](command_args) {
       if (ti.cue_bars.empty()) {
-        println(cout, "(no cues)");
+        println("(no cues)");
         return;
       }
       for (size_t i = 0; i < ti.cue_bars.size(); ++i) {
@@ -2000,7 +2000,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "List tags for this track",
     [&](command_args) {
       if (ti.tags.empty()) {
-        println(cout, "(no tags)");
+        println("(no tags)");
         return;
       }
       bool first = true;
@@ -2164,7 +2164,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     [&](command_args) {
       database.upsert(ti);
       save(database, trackdb_path);
-      println(cout, "Saved to {}", trackdb_path.generic_string());
+      println("Saved to {}", trackdb_path.generic_string());
       dirty = false;
     }
   );
@@ -2354,10 +2354,10 @@ void export_current_mix(const track_database& database,
     }
   }
 
-  println(cout, "Exported {} frames ({} Hz, {} ch) to {}",
+  println("Exported {} frames ({} Hz, {} ch) to {}",
           mix.audio.frames(), mix.audio.sample_rate, mix.audio.channels(),
           out_path.generic_string());
-  println(cout, "Wrote CUE: {}", cue_path.generic_string());
+  println("Wrote CUE: {}", cue_path.generic_string());
 }
 
 // Apply intro/outro constraints to a group of tracks: pick a random intro
@@ -2686,12 +2686,12 @@ int main(int argc, char** argv)
 
     auto print_mix_tracks = [&](){
       if (mix_tracks.empty()) {
-        println(cout, "(mix is empty)");
+        println("(mix is empty)");
         return;
       }
-      println(cout, "Track order:");
+      println("Track order:");
       for (auto [index, file] : views::enumerate(mix_tracks)) {
-        println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
+        println("  {}. {}", index + 1, file.filename().stem().generic_string());
       }
     };
 
@@ -2785,14 +2785,14 @@ int main(int argc, char** argv)
           g_player.track.reset();
           g_mix_cues.clear();
           mix_track_offsets.clear();
-          println(cout, "Removed {}. Mix is now empty.",
+          println("Removed {}. Mix is now empty.",
                   removed.filename().stem().generic_string());
           return;
         }
 
         try {
           rebuild_mix_into_player();
-          println(cout, "Removed {}. Mix size: {}, BPM: {}, BPB: {}",
+          println("Removed {}. Mix size: {}, BPM: {}, BPB: {}",
                   removed.filename().stem().generic_string(),
                   mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
@@ -2841,7 +2841,7 @@ int main(int argc, char** argv)
         size_t toPos   = static_cast<size_t>(to   - 1);
 
         if (fromPos == toPos) {
-          println(cout, "No change (from == to).");
+          println("No change (from == to).");
           return;
         }
 
@@ -2858,7 +2858,7 @@ int main(int argc, char** argv)
 
         try {
           rebuild_mix_into_player();
-          println(cout, "Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
+          println("Moved track {} -> {}. Mix size: {}, BPM: {}, BPB: {}",
                   from, to, mix_tracks.size(),
                   mix_bpm(database, mix_tracks, forced_mix_bpm),
                   g_mix_bpb);
@@ -2878,7 +2878,7 @@ int main(int argc, char** argv)
         }
         if (a.empty()) {
           const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
-          println(cout, "Mix BPM: {:.2f}{}", bpm, forced_mix_bpm ? " (forced)" : "");
+          println("Mix BPM: {:.2f}{}", bpm, forced_mix_bpm ? " (forced)" : "");
           return;
         }
 
@@ -2898,12 +2898,12 @@ int main(int argc, char** argv)
             if (abs(new_bpm - old_bpm) > eps) {
               try {
                 rebuild_mix_into_player();
-                println(cout, "Mix BPM set to auto ({:.2f}) and recomputed.", new_bpm);
+                println("Mix BPM set to auto ({:.2f}) and recomputed.", new_bpm);
               } catch (const std::exception& e) {
                 println(cerr, "Failed to rebuild mix: {}", e.what());
               }
             } else {
-              println(cout, "Mix BPM already at auto ({:.2f}); no recompute needed.", new_bpm);
+              println("Mix BPM already at auto ({:.2f}); no recompute needed.", new_bpm);
             }
             return;
           }
@@ -2917,7 +2917,7 @@ int main(int argc, char** argv)
           forced_mix_bpm = *v;
           try {
             rebuild_mix_into_player();
-            println(cout, "Mix BPM set to {:.2f} and recomputed.",
+            println("Mix BPM set to {:.2f} and recomputed.",
                     mix_bpm(database, mix_tracks, forced_mix_bpm));
           } catch (const std::exception& e) {
             println(cerr, "Failed to rebuild mix: {}", e.what());
@@ -3012,11 +3012,11 @@ int main(int argc, char** argv)
       "List all cue points in current mix",
       [&](command_args) {
         if (g_mix_cues.empty()) {
-          println(cout, "(no cues)");
+          println("(no cues)");
           return;
         }
         for (const auto& c : g_mix_cues) {
-          println(cout, "mix bar {}  |  track: {}  |  track bar {}",
+          println("mix bar {}  |  track: {}  |  track bar {}",
                   c.bar, c.track.filename().stem().generic_string(), c.local_bar);
         }
       }
@@ -3035,7 +3035,7 @@ int main(int argc, char** argv)
         }
 
         if (counts.empty()) {
-          println(cout, "(no tags)");
+          println("(no tags)");
           return;
         }
 
@@ -3110,7 +3110,7 @@ int main(int argc, char** argv)
         }
 
         if (ranges::empty(matched)) {
-          println(cout, "(no tracks matching expression)");
+          println("(no tracks matching expression)");
           last_list_results.clear();
         }
       }
@@ -3167,12 +3167,12 @@ int main(int argc, char** argv)
           }
         }
 
-        println(cout, "Track order:");
+        println("Track order:");
         for (auto [index, file]: views::enumerate(mix_tracks))
-          println(cout, "  {}. {}", index + 1, file.filename().stem().generic_string());
+          println("  {}. {}", index + 1, file.filename().stem().generic_string());
 
         rebuild_mix_into_player();
-        println(cout, "Random mix created with {} tracks. BPM: {}, BPB: {}",
+        println("Random mix created with {} tracks. BPM: {}, BPB: {}",
                 mix_tracks.size(),
                 mix_bpm(database, mix_tracks, forced_mix_bpm),
                 g_mix_bpb);
