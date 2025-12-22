@@ -964,6 +964,20 @@
       "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
+        113,
+        329
+      ],
+      "filename": "DnB/Naibu/Corners/04 - Burning.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
         17,
         193
       ],
