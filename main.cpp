@@ -2343,12 +2343,10 @@ void export_current_mix(const track_database& database,
       // For each internal cuepoint (skip first and last), create a new TRACK
       // starting at that cue's time.
       if (mix.cues.size() > 2) {
-        int track_no = 2;
-        for (size_t i = 1; i + 1 < mix.cues.size(); ++i, ++track_no) {
-          const auto& c = mix.cues[i];
-          std::string idx = format_cue_time(c.time_sec);
-          println(cue, "  TRACK {:02d} AUDIO", track_no);
-          println(cue, "    INDEX 01 {}", idx);
+        auto cues = views::drop(views::enumerate(mix.cues), 1);
+        for (auto [track_no, cuepoint]: views::take(cues, ranges::size(cues) - 1)) {
+          println(cue, "  TRACK {:02d} AUDIO", track_no + 1);
+          println(cue, "    INDEX 01 {}", format_cue_time(cuepoint.time_sec));
         }
       }
     }
