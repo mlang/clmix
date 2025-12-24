@@ -1174,7 +1174,7 @@ detect_beats(const interleaved<float>& track)
   vector<double> result;
 
   for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
-    aubio_tempo_do(tempo.get(), inbuf.get(), tempo_out.get());
+    aubio_tempo_do(tempo.get(), buffer, tempo_out.get());
 
     // Beat detected in this hop?
     if (fvec_get_sample(tempo_out.get(), 0) != smpl_t(0)) {
