@@ -73,6 +73,7 @@ namespace ranges { using namespace std::ranges; }
 namespace views { using namespace std::views; }
 using std::runtime_error;
 using std::shared_ptr, std::unique_ptr;
+using std::span;
 using std::string, std::string_view;
 using std::vector;
 
@@ -115,7 +116,8 @@ requires (is_integral_v<T> || is_floating_point_v<T>)
 }
 
 template<typename T>
-class interleaved {
+class interleaved
+{
   vector<T> storage;
   size_t frames_   = 0;
   size_t channels_ = 0;
@@ -143,31 +145,6 @@ public:
   [[nodiscard]] T*       data()       noexcept     { return storage.data(); }
   [[nodiscard]] const T* data() const noexcept     { return storage.data(); }
 
-  template<typename Elem>
-  class frame_view {
-    std::span<Elem> row;
-
-  public:
-    frame_view(Elem* row, size_t ch) : row(row, ch) {}
-
-    [[nodiscard]] T average() const noexcept {
-      return ranges::fold_left(row, T(0), std::plus<T>{}) / row.size();
-    }
-
-    [[nodiscard]] T peak() const noexcept {
-      return ranges::fold_left(
-        row | views::transform([](auto v) { return abs(v); }),
-        T(0), [](auto a, auto b) { return max(a, b); }
-      );
-    }
-
-    frame_view& operator*=(T gain) noexcept
-    {
-      for (T &sample: row) sample *= gain;
-      return *this;
-    }
-  };
-
   // 2D element access via multi-arg operator[]
   T& operator[](size_t frame, size_t ch) noexcept {
     assert(frame < frames_ && ch < channels_);
@@ -179,24 +156,21 @@ public:
     return storage[frame * channels_ + ch];
   }
 
-  // 1D frame view
-  frame_view<T> operator[](size_t frame) noexcept
-  {
-    assert(frame < frames_);
-    return { storage.data() + frame * channels_, channels_ };
-  }
-  const frame_view<const T> operator[](size_t frame) const noexcept
-  {
-    assert(frame < frames_);
-    return { storage.data() + frame * channels_, channels_ };
-  }
+  auto frame_view() const { return storage | views::chunk(channels_); }
+  auto frame_view()       { return storage | views::chunk(channels_); }
+  span<const T> sample_view() const { return { storage }; }
+  span<      T> sample_view()       { return { storage }; }
 
-  [[nodiscard]] T peak() const noexcept
+  // 1D frame view
+  span<T> operator[](size_t frame) noexcept
   {
-    return ranges::fold_left(
-      storage | views::transform([](T v) { return abs(v); }),
-      T(0), [](T a, T b) { return max(a, b); }
-    );
+    assert(frame < frames_);
+    return { storage.data() + frame * channels_, channels_ };
+  }
+  span<const T> operator[](size_t frame) const noexcept
+  {
+    assert(frame < frames_);
+    return { storage.data() + frame * channels_, channels_ };
   }
 
   void resize(size_t new_frames)
@@ -209,14 +183,21 @@ public:
   { resize(0); }
   void shrink_to_fit()
   { storage.shrink_to_fit(); }
-
-  // Scale all samples in-place by gain.
-  interleaved &operator*=(T gain) noexcept
-  {
-    for (T &sample: storage) sample *= gain;
-    return *this;
-  }
 };
+
+template<floating_point T>
+span<T> operator*=(span<T> frame, T gain)
+{ for (auto &sample: frame) sample *= gain; return frame; }
+
+[[nodiscard]] inline auto
+max_amplitude(ranges::input_range auto &&range)
+{
+  using T = ranges::range_value_t<decltype(range)>;
+  return ranges::fold_left(
+    range | views::transform([](T a) { return abs(a); }),
+    T{0}, [](T a, T b) { return max(a, b); }
+  );
+}
 
 template<typename T>
 void write_wav(interleaved<T> const &audio, path const &out_path)
@@ -241,12 +222,12 @@ void write_wav(interleaved<T> const &audio, path const &out_path)
 }
 
 template<floating_point T>
-void ensure_headroom(interleaved<T> &audio, T headroom_dB)
+void ensure_headroom(span<T> samples, T headroom_dB)
 {
   const T headroom_linear = dbamp(headroom_dB);
-  const T peak = audio.peak();
+  const T peak = max_amplitude(samples);
   if (peak > T(0) && peak > headroom_linear) {
-    audio *= headroom_linear / peak;
+    samples *= headroom_linear / peak;
   }
 }
 
@@ -1022,8 +1003,10 @@ using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 template<typename F> void
 for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 {
-  auto mono = [&audio](size_t frame) { return audio[frame].average(); };
-  for (auto frames: views::chunk(views::iota(size_t(0), audio.frames()), buffer->length)) {
+  auto mono = [](auto frame) noexcept {
+    return ranges::fold_left(frame, 0.0f, std::plus<float>{}) / frame.size();
+  };
+  for (auto frames: audio.frame_view() | views::chunk(buffer->length)) {
     smpl_t *tail = ranges::transform(frames, buffer->data, mono).out;
     std::fill(tail, buffer->data + buffer->length, smpl_t(0));
     f(buffer);
@@ -1071,9 +1054,10 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
   assert(max_release_db_per_s > 0.0f);
 
   auto required
-    = views::iota(size_t{0}, frames)
-    | views::transform([&buf, ceiling_dB](size_t f) -> float {
-        const float pk = buf[f].peak();
+    = buf.frame_view()
+    | views::transform([ceiling_dB](auto frame) -> float
+      {
+        const auto pk = max_amplitude(frame);
         // required gain in dB (<= 0)
         return (pk > 0.f) ? min(0.f, ceiling_dB - ampdb(pk)) : 0.f;
       });
@@ -1426,7 +1410,7 @@ struct MixResult {
     [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
-          ensure_headroom(audio, -2.0f);
+          ensure_headroom(audio.sample_view(), -2.0f);
           return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
@@ -1713,7 +1697,7 @@ void play(player_state &player, multichannel<float> output, uint32_t device_rate
 }
 
 // Simple command registry.
-using command_args = std::span<const string>;
+using command_args = span<const string>;
 using command = std::move_only_function<void(command_args)>;
 struct command_entry {
   string help;
@@ -1746,7 +1730,7 @@ public:
         continue;
       }
       try {
-        it->second.fn(std::span<const string>{args}.subspan(1));
+        it->second.fn(span<const string>{args}.subspan(1));
       } catch (const std::exception& e) {
         println(cerr, "Error: {}", e.what());
       } catch (...) {
