@@ -1240,6 +1240,36 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        97,
+        289
+      ],
+      "filename": "DnB/Blu Mar Ten/RQ - Season Of The Emergence EP/02 - Hawk Bones.flac",
+      "tags": [
+        "dnb",
+        "flute",
+        "jazz"
+      ],
+      "time_offset_sec": -0.09,
+      "upbeat_beats": 3.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 165.0,
+      "cue_bars": [
+        49,
+        225
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Zero Two/07 - Mineral - Source Control.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 120.0,
       "cue_bars": [
         33,
