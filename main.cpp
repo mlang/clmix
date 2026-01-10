@@ -156,10 +156,10 @@ public:
     return storage[frame * channels_ + ch];
   }
 
-  auto frame_view() const { return storage | views::chunk(channels_); }
-  auto frame_view()       { return storage | views::chunk(channels_); }
-  span<const T> sample_view() const { return { storage }; }
-  span<      T> sample_view()       { return { storage }; }
+  auto frame_view() const noexcept { return storage | views::chunk(channels_); }
+  auto frame_view()       noexcept { return storage | views::chunk(channels_); }
+  span<const T> sample_view() const noexcept { return { storage }; }
+  span<      T> sample_view()       noexcept { return { storage }; }
 
   // 1D frame view
   span<T> operator[](size_t frame) noexcept
@@ -226,7 +226,7 @@ void ensure_headroom(span<T> samples, T headroom_dB)
 {
   const T headroom_linear = dbamp(headroom_dB);
   const T peak = max_amplitude(samples);
-  if (peak > T(0) && peak > headroom_linear) {
+  if (peak > T{0} && peak > headroom_linear) {
     samples *= headroom_linear / peak;
   }
 }
@@ -353,10 +353,10 @@ enum class fade_curve { Linear, Sine };
   fade_curve curve = fade_curve::Sine
 ) noexcept
 {
-  if (total_frames == 0) return 0.0f;
+  if (total_frames == 0) return 0.0F;
 
   // No cues at all: no envelope, just unity
-  if (!first_cue && !last_cue) return 1.0f;
+  if (!first_cue && !last_cue) return 1.0F;
 
   double fc = first_cue.value_or(0.0);
   double lc = last_cue.value_or(static_cast<double>(total_frames));
@@ -367,7 +367,7 @@ enum class fade_curve { Linear, Sine };
 
   // Fade-in region: [0, fc]
   if (first_cue && f <= fc) {
-    if (fc <= 0.0) return 1.0f; // degenerate: no fade-in
+    if (fc <= 0.0) return 1.0F; // degenerate: no fade-in
     const double p = f / fc;    // 0..1
     return apply_fade_curve(curve, p);
   }
@@ -375,41 +375,41 @@ enum class fade_curve { Linear, Sine };
   // Fade-out region: [lc, total_frames)
   if (last_cue && f >= lc) {
     const double denom = static_cast<double>(total_frames) - lc;
-    if (denom <= 1e-12) return 0.0f;  // degenerate: no tail
+    if (denom <= 1e-12) return 0.0F;  // degenerate: no tail
     const double p = (f - lc) / denom; // 0..1
     // For fade-out, invert the curve: 1 - curve(p)
-    return 1.0f - apply_fade_curve(curve, p);
+    return 1.0F - apply_fade_curve(curve, p);
   }
 
   // Sustain region
-  return 1.0f;
+  return 1.0F;
 }
 
 // Encapsulated metronome state and processing
 struct Metronome {
   std::atomic<double> bpm{120.0};
-  std::atomic<unsigned> bpb{4u};
+  std::atomic<unsigned> bpb{4U};
 
   // runtime state
   uint64_t lastBeatIndex = 0;
   int clickSamplesLeft = 0;
   int clickLen = 0; // in device samples
-  float clickPhase = 0.f;
-  float clickAmp = 0.f;
-  float clickFreqCurHz = 0.f;
+  float clickPhase = 0.F;
+  float clickAmp = 0.F;
+  float clickFreqCurHz = 0.F;
 
   // click parameters
-  float clickFreqHzBeat = 1000.f;
-  float clickFreqHzDownbeat = 1600.f; // higher pitch for downbeat
-  float downbeatAmp = 0.35f;
-  float beatAmp = 0.18f;
+  float clickFreqHzBeat = 1000.F;
+  float clickFreqHzDownbeat = 1600.F; // higher pitch for downbeat
+  float downbeatAmp = 0.35F;
+  float beatAmp = 0.18F;
 
   void reset_runtime() {
     lastBeatIndex = std::numeric_limits<uint64_t>::max();
     clickSamplesLeft = 0;
     clickLen = 0;
-    clickPhase = 0.f;
-    clickAmp = 0.f;
+    clickPhase = 0.F;
+    clickAmp = 0.F;
     clickFreqCurHz = clickFreqHzBeat;
   }
 
@@ -434,16 +434,16 @@ struct Metronome {
     if (beatIndex != lastBeatIndex) {
       lastBeatIndex = beatIndex;
       clickSamplesLeft = clickLen;
-      clickPhase = 0.f;
-      unsigned curBpb = max(1u, bpb.load());
+      clickPhase = 0.F;
+      unsigned curBpb = max(1U, bpb.load());
       bool downbeat = (beatIndex % static_cast<uint64_t>(curBpb)) == 0;
       clickAmp = downbeat ? downbeatAmp : beatAmp;
       clickFreqCurHz = downbeat ? clickFreqHzDownbeat : clickFreqHzBeat;
     }
-    float click = 0.f;
+    float click = 0.F;
     if (clickSamplesLeft > 0) {
       float env = (float)clickSamplesLeft / (float)clickLen; // linear decay
-      clickPhase += 2.0f * std::numbers::pi_v<float> * clickFreqCurHz / (float)device_rate;
+      clickPhase += 2.0F * std::numbers::pi_v<float> * clickFreqCurHz / (float)device_rate;
       click = clickAmp * std::sinf(clickPhase) * env;
       --clickSamplesLeft;
     }
@@ -862,7 +862,7 @@ match(track_database const &database, Matcher const &matcher)
 struct player_state {
   std::atomic<bool> playing{false};
   shared_ptr<interleaved<float>> track; // set before play; not swapped while playing
-  std::atomic<float> trackGainDB{0.f}; // Track gain in dB (0 = unity; negative attenuates)
+  std::atomic<float> trackGainDB{0.F}; // Track gain in dB (0 = unity; negative attenuates)
   std::atomic<double> upbeatBeats{0.0};
   std::atomic<double> timeOffsetSec{0.0};
 
@@ -1004,7 +1004,7 @@ template<typename F> void
 for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 {
   auto mono = [](auto frame) noexcept {
-    return ranges::fold_left(frame, 0.0f, std::plus<float>{}) / frame.size();
+    return ranges::fold_left(frame, 0.0F, std::plus<float>{}) / frame.size();
   };
   for (auto frames: audio.frame_view() | views::chunk(buffer->length)) {
     smpl_t *tail = ranges::transform(frames, buffer->data, mono).out;
@@ -1042,16 +1042,16 @@ for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
 }
 
 void apply_two_pass_limiter_db(interleaved<float>& buf,
-                               float ceiling_dB = -1.0f,
-                               float max_attack_db_per_s = 200.0f,
-                               float max_release_db_per_s = 40.0f)
+                               float ceiling_dB = -1.0F,
+                               float max_attack_db_per_s = 200.0F,
+                               float max_release_db_per_s = 40.0F)
 {
   const uint32_t sr = buf.sample_rate;
   const size_t frames = buf.frames();
   if (sr == 0 || frames == 0) return;
 
-  assert(max_attack_db_per_s > 0.0f);
-  assert(max_release_db_per_s > 0.0f);
+  assert(max_attack_db_per_s > 0.0F);
+  assert(max_release_db_per_s > 0.0F);
 
   auto required
     = buf.frame_view()
@@ -1059,7 +1059,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
       {
         const auto pk = max_amplitude(frame);
         // required gain in dB (<= 0)
-        return (pk > 0.f) ? min(0.f, ceiling_dB - ampdb(pk)) : 0.f;
+        return (pk > 0.F) ? min(0.F, ceiling_dB - ampdb(pk)) : 0.F;
       });
 
   class apply_gain {
@@ -1079,7 +1079,7 @@ void apply_two_pass_limiter_db(interleaved<float>& buf,
 
     apply_gain& operator=(float gain_dB) noexcept
     {
-      (*buf)[i] *= clamp(dbamp(gain_dB), 0.0f, 1.0f);
+      (*buf)[i] *= clamp(dbamp(gain_dB), 0.0F, 1.0F);
       return *this;
     }
   };
@@ -1410,7 +1410,7 @@ struct MixResult {
     [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
-          ensure_headroom(audio.sample_view(), -2.0f);
+          ensure_headroom(audio.sample_view(), -2.0F);
           return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
@@ -1515,7 +1515,7 @@ struct MixResult {
         f, it.audio.frames(), fade_in_cue, fade_out_cue, fade_curve::Sine
       );
       const float a = fade * gain_lin;
-      if (a <= 0.0f) continue;
+      if (a <= 0.0F) continue;
 
       for (size_t ch = 0; ch < outChS; ++ch) {
         const size_t sC = ch % inChS;
@@ -1527,7 +1527,7 @@ struct MixResult {
     it.audio.shrink_to_fit();
   }
 
-  apply_two_pass_limiter_db(result.audio, -1.0f, 200.0f, 40.0f);
+  apply_two_pass_limiter_db(result.audio, -1.0F, 200.0F, 40.0F);
 
   // Build cues
   result.cues.clear();
@@ -1592,7 +1592,7 @@ void play(player_state &player, multichannel<float> output, uint32_t device_rate
     for (size_t i = 0; i < output.extent(0); ++i) {
       // Quantized seek: apply pending seek at the next bar boundary
       if (player.seekPending.load()) {
-        unsigned bpbNow = max(1u, player.metro.bpb.load());
+        unsigned bpbNow = max(1U, player.metro.bpb.load());
         const double adjNow  = max(0.0, pos - shiftSrc);
         const double adjNext = max(0.0, pos + incrSrcPerOut - shiftSrc);
         auto beatNow  = (uint64_t)floor(adjNow / framesPerBeatSrc);
@@ -1774,7 +1774,7 @@ void register_volume_command(REPL& repl, string label) {
         if (tail == "db") s.resize(s.size() - 2);
       }
       if (auto v = parse_number<float>(s)) {
-        const float db = clamp(*v, -60.f, 12.f);
+        const float db = clamp(*v, -60.F, 12.F);
         g_player.trackGainDB.store(db);
         float lin = dbamp(db);
         println("{} volume set to {:.2f} dB (x{:.3f})", label, db, lin);
@@ -1802,10 +1802,10 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
   } else {
     ti.filename = f;
     ti.beats_per_bar = 4;
-    ti.bpm = 120.f;
+    ti.bpm = 120.F;
     try {
       guessedBpm = detect_bpm(*tr);
-      if (guessedBpm > 0.f) {
+      if (guessedBpm > 0.F) {
         ti.bpm = guessedBpm;
       }
     } catch (const std::exception& e) {
@@ -1829,13 +1829,13 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
   // keep existing volume
   g_player.metro.reset_runtime();
   g_player.metro.bpm.store(ti.bpm);
-  g_player.metro.bpb.store(max(1u, ti.beats_per_bar));
+  g_player.metro.bpb.store(max(1U, ti.beats_per_bar));
   g_player.upbeatBeats.store(ti.upbeat_beats);
   g_player.timeOffsetSec.store(ti.time_offset_sec);
 
   auto print_estimated_bars = [&](){
     auto bpmNow = max(1.0, g_player.metro.bpm.load());
-    unsigned bpbNow = max(1u, g_player.metro.bpb.load());
+    unsigned bpbNow = max(1U, g_player.metro.bpb.load());
     size_t total_frames = tr->frames();
     double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
     double beats = (double)total_frames / framesPerBeat;
@@ -1885,7 +1885,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
         return;
       }
       if (auto v = parse_number<unsigned>(a[0]); v) {
-        if (*v == 0u) {
+        if (*v == 0U) {
           println(cerr, "Invalid beats-per-bar: must be > 0");
           return;
         }
@@ -2202,7 +2202,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
       if (auto bar1 = parse_number<int>(a[0]); bar1) {
         int bar0 = max(0, *bar1 - 1);
         auto bpmNow = max(1.0, g_player.metro.bpm.load());
-        unsigned bpbNow = max(1u, g_player.metro.bpb.load());
+        unsigned bpbNow = max(1U, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
         double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
         double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
@@ -2621,7 +2621,7 @@ int main(int argc, char** argv)
 
       g_player.metro.reset_runtime();
       g_player.metro.bpm.store(mix.bpm);
-      g_player.metro.bpb.store(max(1u, g_mix_bpb));
+      g_player.metro.bpb.store(max(1U, g_mix_bpb));
       if (!mix_tracks.empty()) {
 	if (auto* ti0 = database.find(mix_tracks.front())) {
 	  g_player.upbeatBeats.store(ti0->upbeat_beats);
