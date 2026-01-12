@@ -188,6 +188,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 136.0,
+      "cue_bars": [
+        41,
+        167
+      ],
+      "filename": "Acid/Tripalium Corp/Nite Fleit ⧸ False Persona - AAR018 - Nite Fleit ⧸ False Persona - Acid Avengers 018/Nite Fleit ⧸ False Persona - A3. Nite Fleit & False Persona - Parallax [1085095535].mp3",
+      "tags": [
+        "acid",
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 146.0,
       "cue_bars": [
         49,
@@ -763,6 +778,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        97,
+        289
+      ],
+      "filename": "DnB/Blu Mar Ten/RQ - Season Of The Emergence EP/02 - Hawk Bones.flac",
+      "tags": [
+        "dnb",
+        "flute",
+        "jazz"
+      ],
+      "time_offset_sec": -0.09,
+      "upbeat_beats": 3.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 172.00186502893314,
       "cue_bars": [
         81,
@@ -886,6 +917,21 @@
         "jungle"
       ],
       "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        33,
+        205
+      ],
+      "filename": "DnB/Fokuz Recordings/Unknown Artist - The Unknown Collection Vol 4/Unknown Artist - U.N.I.T.Y. [414938824].mp3",
+      "tags": [
+        "dnb",
+        "vocal"
+      ],
+      "time_offset_sec": 0.21,
       "upbeat_beats": 0.0
     },
     {
@@ -1018,6 +1064,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0010309574355,
+      "cue_bars": [
+        49,
+        225
+      ],
+      "filename": "DnB/Paradox Music/Naibu - Replaced [Invisible Mix] [293303798].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 3.5714507083280864,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 155.0,
       "cue_bars": [
         1,
@@ -1026,6 +1086,21 @@
       "filename": "DnB/RuptureLDN/RuptureLDN - Warehouse Theory [1925666433].mp3",
       "tags": [
         "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        65,
+        257
+      ],
+      "filename": "DnB/Samurai Music/Eastcolors - Eastcolors - Acidized [2144629994].mp3",
+      "tags": [
+        "acid",
+        "dnb"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
@@ -1112,6 +1187,20 @@
       "filename": "DnB/Straight Up Breakbeat/Zero Two/04 - Infader - Breaking Lights.flac",
       "tags": [
         "jungle"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 165.0,
+      "cue_bars": [
+        49,
+        225
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Zero Two/07 - Mineral - Source Control.flac",
+      "tags": [
+        "dnb"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
@@ -1240,32 +1329,16 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 170.0,
+      "bpm": 160.04093424736624,
       "cue_bars": [
-        97,
-        289
+        9,
+        221
       ],
-      "filename": "DnB/Blu Mar Ten/RQ - Season Of The Emergence EP/02 - Hawk Bones.flac",
+      "filename": "IDM/Warp Records/Squarepusher - Venus No. 17/02 - Venus No.17 Acid Mix.flac",
       "tags": [
-        "dnb",
-        "flute",
-        "jazz"
+        "jungle"
       ],
-      "time_offset_sec": -0.09,
-      "upbeat_beats": 3.0
-    },
-    {
-      "beats_per_bar": 4,
-      "bpm": 165.0,
-      "cue_bars": [
-        49,
-        225
-      ],
-      "filename": "DnB/Straight Up Breakbeat/Zero Two/07 - Mineral - Source Control.flac",
-      "tags": [
-        "dnb"
-      ],
-      "time_offset_sec": 0.0,
+      "time_offset_sec": 0.015941035857304442,
       "upbeat_beats": 0.0
     },
     {
@@ -1282,6 +1355,21 @@
         "techno"
       ],
       "time_offset_sec": 0.2,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 183.0,
+      "cue_bars": [
+        49,
+        265
+      ],
+      "filename": "Polymorph/polymorph - U.nearthed F.oreign O.bjects-3561493064.flac",
+      "tags": [
+        "Polymorph",
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1762,6 +1850,21 @@
       "filename": "Psytrance/Suntrip Records/V⧸A - Aurora Sidera/01 - Skizologic - Retrospective.flac",
       "tags": [
         "Skizologic",
+        "acid",
+        "psy"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 142.0,
+      "cue_bars": [
+        33,
+        265
+      ],
+      "filename": "Psytrance/Yellow Sunshine Explosion/Various Artists - Goa Trance, Vol. 47/Various Artists - SOME1 - Simplicity (Original Mix) [3470440430].mp3",
+      "tags": [
         "acid",
         "psy"
       ],
