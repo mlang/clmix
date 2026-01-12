@@ -159,6 +159,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 165.0,
+      "cue_bars": [
+        15,
+        143
+      ],
+      "filename": "Acid/Chris Moss Acid/Chris Moss Acid - D'n'B - 1 (ALTBassMix)-3883792068.mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset_sec": 0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 145.0,
       "cue_bars": [
         17,
@@ -917,6 +931,22 @@
         "jungle"
       ],
       "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        49,
+        233
+      ],
+      "filename": "DnB/Fokuz Recordings/Brother - Retrospect : 2008-2012/02 - Mean ft. Matt.flac",
+      "tags": [
+        "dnb",
+        "flute",
+        "sax"
+      ],
+      "time_offset_sec": 0.23,
       "upbeat_beats": 0.0
     },
     {
