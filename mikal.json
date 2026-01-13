@@ -738,7 +738,7 @@
         49,
         353
       ],
-      "filename": "DnB/Bay B Kane/Various - Bay B Kane - Like A Circle [Sound Shifter VIP] [225611941].mp3",
+      "filename": "DnB/Bay B Kane/The VIP Project Volume 2/02 - Bay B Kane - Like A Circle [Sound Shifter VIP].flac",
       "tags": [
         "jungle"
       ],
@@ -842,7 +842,7 @@
         49,
         225
       ],
-      "filename": "DnB/Deep In The Jungle Records/10 Years of Deep In The Jungle Records/Deep In The Jungle Records - RMS - Rude Man Sound [2357895078].mp3",
+      "filename": "DnB/Deep In The Jungle Records/10 Years of Deep In The Jungle Records/10 - RMS - Rude Man Sound.flac",
       "tags": [
         "jungle"
       ],
@@ -856,7 +856,7 @@
         49,
         175
       ],
-      "filename": "DnB/Deep In The Jungle Records/10 Years of Deep In The Jungle Records/Deep In The Jungle Records - Soul Defiance - We Run It [3195374769].mp3",
+      "filename": "DnB/Deep In The Jungle Records/10 Years of Deep In The Jungle Records/13 - Soul Defiance - We Run It.flac",
       "tags": [
         "jungle"
       ],
@@ -1005,6 +1005,21 @@
         "jazz"
       ],
       "time_offset_sec": 0.08,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 165.0,
+      "cue_bars": [
+        19,
+        275
+      ],
+      "filename": "DnB/Inperspective Records/Phuture T - INP030 - Persuasive Funk/10 - 3000.flac",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset_sec": 0.03,
       "upbeat_beats": 0.0
     },
     {
@@ -1170,7 +1185,7 @@
         17,
         193
       ],
-      "filename": "DnB/Straight Up Breakbeat/Askel - Askel - Through-1286524231.mp3",
+      "filename": "DnB/Straight Up Breakbeat/Zero One/10 - Askel - Through.flac",
       "tags": [
         "dnb",
         "vocal"
@@ -1256,7 +1271,7 @@
         49,
         193
       ],
-      "filename": "DnB/ThirtyOne Recordings/Deadcode - Ratatata ⧸ Chasm/Deadcode - Ratatata [2747154694].mp3",
+      "filename": "DnB/ThirtyOne Recordings/Deadcode - Ratatata ⧸ Chasm/01 - Ratatata.flac",
       "tags": [
         "hard",
         "jungle"
