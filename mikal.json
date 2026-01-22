@@ -733,6 +733,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 145.0,
+      "cue_bars": [
+        49,
+        241
+      ],
+      "filename": "DnB/Bay B Kane/Bay B Kane - Unspoken - Bay B Kane [2571346575].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.01,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 165.0,
       "cue_bars": [
         49,
@@ -834,6 +848,20 @@
       ],
       "time_offset_sec": -0.03,
       "upbeat_beats": 1.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        33,
+        257
+      ],
+      "filename": "DnB/Commercial Suicide Records/Seba & Method One - Dawn Patrol [1762843561].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
@@ -1039,6 +1067,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        33,
+        225
+      ],
+      "filename": "DnB/Lightless Recordings/Fanu - The Silent Watcher/04 - The Fall.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 169.99769448994653,
       "cue_bars": [
         65,
@@ -1137,6 +1179,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        33,
+        257
+      ],
+      "filename": "DnB/RuptureLDN/Forest Drive West - Fiorina 161 [954166561].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 155.0,
       "cue_bars": [
         1,
@@ -1180,18 +1236,31 @@
     },
     {
       "beats_per_bar": 4,
-      "bpm": 172.0,
+      "bpm": 175.0,
       "cue_bars": [
-        17,
-        193
+        33,
+        257
       ],
-      "filename": "DnB/Straight Up Breakbeat/Zero One/10 - Askel - Through.flac",
+      "filename": "DnB/Seba/SECOPS013 - 34 Alpha - Devotion/01 - 34 Alpha.flac",
       "tags": [
-        "dnb",
-        "vocal"
+        "dnb"
       ],
       "time_offset_sec": 0.0,
-      "upbeat_beats": 1.0
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        81,
+        249
+      ],
+      "filename": "DnB/Seba/SECOPSRI001 - Return To Forever (full album)/07 - Forever.flac",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.31,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
@@ -1207,6 +1276,21 @@
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        17,
+        193
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Zero One/10 - Askel - Through.flac",
+      "tags": [
+        "dnb",
+        "vocal"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 1.0
     },
     {
       "beats_per_bar": 4,
