@@ -2310,6 +2310,17 @@ char** clmix_completion(const char* text, int start, int end) {
   return std::format("{:02d}:{:02d}:{:02d}", mm, ss, ff);
 }
 
+[[nodiscard]] std::string cue_escape(std::string_view s)
+{
+  std::string out;
+  out.reserve(s.size());
+  for (char c : s) {
+    if (c == '"') out.push_back('\\');
+    out.push_back(c);
+  }
+  return out;
+}
+
 void export_current_mix(const track_database& database,
                         const vector<path>& mix_tracks,
                         const path& out_path,
@@ -2342,6 +2353,12 @@ void export_current_mix(const track_database& database,
 
       // Always create TRACK 01 starting at 00:00:00
       println(cue, "  TRACK 01 AUDIO");
+      if (!mix.cues.empty()) {
+        auto title = cue_escape(
+          mix.cues.front().track.filename().stem().generic_string()
+        );
+        println(cue, "    TITLE \"{}\"", title);
+      }
       println(cue, "    INDEX 01 00:00:00");
 
       // For each internal cuepoint (skip first and last), create a new TRACK
@@ -2350,6 +2367,10 @@ void export_current_mix(const track_database& database,
         auto cues = views::drop(views::enumerate(mix.cues), 1);
         for (auto [track_no, cuepoint]: views::take(cues, ranges::size(cues) - 1)) {
           println(cue, "  TRACK {:02d} AUDIO", track_no + 1);
+          auto title = cue_escape(
+            cuepoint.track.filename().stem().generic_string()
+          );
+          println(cue, "    TITLE \"{}\"", title);
           println(cue, "    INDEX 01 {}", format_cue_time(cuepoint.time_sec));
         }
       }
