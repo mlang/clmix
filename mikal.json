@@ -791,6 +791,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        33,
+        193
+      ],
+      "filename": "DnB/Blu Mar Ten/Conduct - Oma/08 - Water & Oil (feat. Georgia May).flac",
+      "tags": [
+        "dnb",
+        "vocals"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 132.0,
       "cue_bars": [
         35,
@@ -1351,6 +1366,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        33,
+        241
+      ],
+      "filename": "DnB/Soul Trader Records/Silence Groove - Care More [1031375785].mp3",
+      "tags": [
+        "dnb",
+        "voice"
+      ],
+      "time_offset_sec": 0.13,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         49,
@@ -1359,6 +1389,20 @@
       "filename": "DnB/Straight Up Breakbeat/SUBB9604 - Dj Sofa - Junglist Respect/03 - Skatta.flac",
       "tags": [
         "Sofa",
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 155.0,
+      "cue_bars": [
+        49
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Year Zero/11 - Fanu - Aura Eleven.flac",
+      "tags": [
+        "217",
         "dnb"
       ],
       "time_offset_sec": 0.0,
