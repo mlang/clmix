@@ -851,6 +851,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        33,
+        257
+      ],
+      "filename": "DnB/Commercial Suicide Records/Method One - Sightlines [4078115191].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 175.0,
       "cue_bars": [
         33,
@@ -895,6 +909,21 @@
       "beats_per_bar": 4,
       "bpm": 175.0,
       "cue_bars": [
+        33,
+        247
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPIN009 - Back To The Jungle EP - Part 2/04 - Simply Dread - Under The System.flac",
+      "tags": [
+        "jungle",
+        "vocals"
+      ],
+      "time_offset_sec": 0.03,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
         17,
         193
       ],
@@ -903,6 +932,21 @@
         "jungle"
       ],
       "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        33,
+        193
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPIN036 - Kumarachi - Buss It Up EP/03 - Buss It Up.flac",
+      "tags": [
+        "jungle",
+        "voice"
+      ],
+      "time_offset_sec": 0.08970442505472676,
       "upbeat_beats": 0.0
     },
     {
@@ -993,6 +1037,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 173.0,
+      "cue_bars": [
+        33,
+        177
+      ],
+      "filename": "DnB/Fokuz Recordings/Cnof - Sincere Joy EP/03 - The Soul Hop Thing (ft. MC Astro).flac",
+      "tags": [
+        "dnb",
+        "vocals"
+      ],
+      "time_offset_sec": 0.21,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 174.0,
       "cue_bars": [
         33,
@@ -1019,6 +1078,20 @@
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": -0.75
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        65,
+        337
+      ],
+      "filename": "DnB/Inperspective Records/Andy Skopes - Andy Skopes - Laterality [3095163927].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
@@ -1105,6 +1178,20 @@
         "dnb"
       ],
       "time_offset_sec": 0.05,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        33,
+        209
+      ],
+      "filename": "DnB/Microfunk Music/Nuage - mountainsi [2185589698].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
     {
