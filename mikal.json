@@ -1296,6 +1296,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.88946581998667,
+      "cue_bars": [
+        49,
+        273
+      ],
+      "filename": "DnB/Paradox Music/Paradox - Soviet - 7Arc/01 - Soviet.flac",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset_sec": 0.026899806147572036,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         33,
