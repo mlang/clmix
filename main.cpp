@@ -999,8 +999,8 @@ using aubio_tempo_ptr = unique_ptr<aubio_tempo_t, decltype(&del_aubio_tempo)>;
 using aubio_onset_ptr = unique_ptr<aubio_onset_t, decltype(&del_aubio_onset)>;
 using fvec_ptr        = unique_ptr<fvec_t,        decltype(&del_fvec)>;
 
-template<typename F> void
-for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, F &&f)
+void
+for_each_mono_chunk(interleaved<float> const &audio, fvec_t *buffer, auto &&f)
 {
   auto mono = [](auto frame) noexcept {
     return ranges::fold_left(frame, 0.0F, std::plus<float>{}) / frame.size();
