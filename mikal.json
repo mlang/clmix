@@ -605,7 +605,7 @@
       "tags": [
         "melodic",
         "techno",
-        "vocal"
+        "vocals"
       ],
       "time_offset_sec": -0.05,
       "upbeat_beats": 0.0
@@ -1648,10 +1648,56 @@
       "beats_per_bar": 4,
       "bpm": 120.0,
       "cue_bars": [
+        33,
+        129
+      ],
+      "filename": "Melodic Techno/Bar 25 Music/Purple Kaiser - Spreeside [Bar25-101]/Purple Kaiser - Purple Kaiser - Spreeside (Original Mix) [1044300998].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.02,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 123.0,
+      "cue_bars": [
+        33,
+        161
+      ],
+      "filename": "Melodic Techno/Bar 25 Music/She Knows - Distorted Images [Bar25-087]/She Knows - Thalassa (René Bourgeois Remix) [3919441020].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.06,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 120.0,
+      "cue_bars": [
+        33,
+        201
+      ],
+      "filename": "Melodic Techno/Bar 25 Music/Various Artists - Bar25: Zeitgeist Vol.7 [Bar25-133]/Various Artists - Sasch BBC & Caspar - Circles Down (Original Mix) [1196823291].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 120.0,
+      "cue_bars": [
         212
       ],
       "filename": "Melodic Techno/Bar 25 Music/Various Artists - This is Bar 25 Music [Bar25-140]/Various Artists - Freedarich, Stiggsen - Cross Country (Original Mix) [1036525021].mp3",
       "tags": [
+        "melodic",
         "techno"
       ],
       "time_offset_sec": 0.0,
@@ -1666,9 +1712,55 @@
       ],
       "filename": "Melodic Techno/Innervisions/Frank Wiedemann - Moorthon II [2496133657].mp3",
       "tags": [
+        "melodic",
         "techno"
       ],
       "time_offset_sec": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 124.87620716345505,
+      "cue_bars": [
+        17,
+        241
+      ],
+      "filename": "Melodic Techno/Innervisions/Henrik Schwarz - Kuar (Henrik Schwarz Remix) [1562887106].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 121.0,
+      "cue_bars": [
+        41,
+        129
+      ],
+      "filename": "Melodic Techno/Innervisions/Âme - Queen Of Toys [1535491655].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.02,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 110.0,
+      "cue_bars": [
+        17,
+        161
+      ],
+      "filename": "Melodic Techno/Katermukke/Akuba - Akuba - Aviero-3134447604.mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1680,7 +1772,9 @@
       ],
       "filename": "Melodic Techno/Katermukke/Think City & K-os Theory - Into The Unknown feat. Leonie Sky (Extended Mix)-2124321395.mp3",
       "tags": [
-        "techno"
+        "melodic",
+        "techno",
+        "vocals"
       ],
       "time_offset_sec": 0.0,
       "upbeat_beats": 0.0
@@ -1699,6 +1793,71 @@
         "techno"
       ],
       "time_offset_sec": 0.2,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 122.0,
+      "cue_bars": [
+        49,
+        209
+      ],
+      "filename": "Melodic Techno/Keinemusik/Moderat, Rampa, &ME, Keinemusik - Moderat, Rampa, &ME, Keinemusik - More Love (Rampa &ME Remix) [1065118722].mp3",
+      "tags": [
+        "melodic",
+        "techno",
+        "vocals"
+      ],
+      "time_offset_sec": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 118.0,
+      "cue_bars": [
+        49,
+        189
+      ],
+      "filename": "Melodic Techno/Keinemusik/Reznik, Mikesh - It’s Not You It’s Me [3818330384].mp3",
+      "tags": [
+        "bells",
+        "melodic",
+        "techno",
+        "voice"
+      ],
+      "time_offset_sec": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 124.5,
+      "cue_bars": [
+        25,
+        121
+      ],
+      "filename": "Melodic Techno/Kompakt/Various Artists - 20 Jahre Kompakt - Kollektion 2/The Modernist - The Modernist - The Days Of Pearly Spencer [1266588934].mp3",
+      "tags": [
+        "cheezy",
+        "melodic",
+        "techno",
+        "vocals"
+      ],
+      "time_offset_sec": 0.055,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 125.0,
+      "cue_bars": [
+        33,
+        165
+      ],
+      "filename": "Melodic Techno/Mind Against/ENØS - ENØS - With You [2413396091].mp3",
+      "tags": [
+        "melodic",
+        "techno"
+      ],
+      "time_offset_sec": 0.19,
       "upbeat_beats": 0.0
     },
     {
