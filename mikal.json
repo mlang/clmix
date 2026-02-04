@@ -980,6 +980,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        65,
+        241
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPIN060 - Deep In The Jungle Anthems 5 LP/Deep In The Jungle Records - Evade - The Dark Tune [843627406].mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 174.0,
       "cue_bars": [
         33,
@@ -1111,6 +1125,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 173.0,
+      "cue_bars": [
+        49,
+        209
+      ],
+      "filename": "DnB/Horizons Music/Digital & Spirit - Digital & Spirit - Way Out [1897846235].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset": 0.01,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 175.0,
       "cue_bars": [
         65,
@@ -1166,6 +1194,21 @@
         "jazz"
       ],
       "time_offset": 0.035,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        33,
+        241
+      ],
+      "filename": "DnB/Lightless Recordings/Fanu - Breakbeat Brew EP/01 - About Life And Death.flac",
+      "tags": [
+        "acid",
+        "dnb"
+      ],
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1432,6 +1475,20 @@
       "filename": "DnB/Straight Up Breakbeat/Year Zero/11 - Fanu - Aura Eleven.flac",
       "tags": [
         "217",
+        "dnb"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 165.5,
+      "cue_bars": [
+        65,
+        241
+      ],
+      "filename": "DnB/Straight Up Breakbeat/Year Zero/14 - Fanu - Timetravels.flac",
+      "tags": [
         "dnb"
       ],
       "time_offset": 0.0,
