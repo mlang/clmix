@@ -13,7 +13,7 @@
         "ska",
         "uk"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.333333
     },
     {
@@ -27,7 +27,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 4.0
     },
     {
@@ -42,7 +42,7 @@
         "acid",
         "uk"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -56,7 +56,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -70,7 +70,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.265,
+      "time_offset": 0.265,
       "upbeat_beats": 0.0
     },
     {
@@ -84,7 +84,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.06,
+      "time_offset": 0.06,
       "upbeat_beats": 0.0
     },
     {
@@ -98,7 +98,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.06,
+      "time_offset": 0.06,
       "upbeat_beats": 0.0
     },
     {
@@ -112,7 +112,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.05,
+      "time_offset": 0.05,
       "upbeat_beats": 0.0
     },
     {
@@ -126,7 +126,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -140,7 +140,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -154,7 +154,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.011711077786635717,
+      "time_offset": 0.011711077786635717,
       "upbeat_beats": 0.0
     },
     {
@@ -168,7 +168,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.05,
+      "time_offset": 0.05,
       "upbeat_beats": 0.0
     },
     {
@@ -183,7 +183,7 @@
         "acid",
         "uk"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -197,7 +197,7 @@
       "tags": [
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.25
     },
     {
@@ -212,7 +212,7 @@
         "acid",
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -227,7 +227,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -242,7 +242,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -257,7 +257,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -272,7 +272,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -287,7 +287,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -302,7 +302,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -317,7 +317,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -332,7 +332,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -347,7 +347,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -362,7 +362,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -377,7 +377,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -392,7 +392,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -407,7 +407,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -422,7 +422,7 @@
         "LingLing",
         "acid"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -437,7 +437,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -452,7 +452,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -468,7 +468,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -484,7 +484,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": -0.25
     },
     {
@@ -500,7 +500,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.15424901528174137,
+      "time_offset": 0.15424901528174137,
       "upbeat_beats": 0.0
     },
     {
@@ -515,7 +515,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -530,7 +530,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -545,7 +545,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -560,7 +560,7 @@
         "acid",
         "core"
       ],
-      "time_offset_sec": 0.018073234513636294,
+      "time_offset": 0.018073234513636294,
       "upbeat_beats": 0.0
     },
     {
@@ -575,7 +575,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -591,7 +591,7 @@
         "Roeth",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -607,7 +607,7 @@
         "techno",
         "vocals"
       ],
-      "time_offset_sec": -0.05,
+      "time_offset": -0.05,
       "upbeat_beats": 0.0
     },
     {
@@ -622,7 +622,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -637,7 +637,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.03,
+      "time_offset": 0.03,
       "upbeat_beats": 0.0
     },
     {
@@ -652,7 +652,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -668,7 +668,7 @@
         "step",
         "symbolico"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -684,7 +684,7 @@
         "step",
         "symbolico"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -700,7 +700,7 @@
         "step",
         "symbolico"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -714,7 +714,7 @@
       "tags": [
         "symbolico"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -728,7 +728,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.07,
+      "time_offset": 0.07,
       "upbeat_beats": 0.0
     },
     {
@@ -742,7 +742,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.01,
+      "time_offset": 0.01,
       "upbeat_beats": 0.0
     },
     {
@@ -756,7 +756,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.475,
+      "time_offset": 0.475,
       "upbeat_beats": 0.0
     },
     {
@@ -772,7 +772,7 @@
         "flute",
         "jazz"
       ],
-      "time_offset_sec": 0.275,
+      "time_offset": 0.275,
       "upbeat_beats": 0.0
     },
     {
@@ -786,7 +786,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0009953466531129607,
+      "time_offset": 0.0009953466531129607,
       "upbeat_beats": 0.0
     },
     {
@@ -801,7 +801,7 @@
         "dnb",
         "vocals"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -815,7 +815,7 @@
       "tags": [
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -830,7 +830,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.01,
+      "time_offset": 0.01,
       "upbeat_beats": 2.0
     },
     {
@@ -846,7 +846,7 @@
         "flute",
         "jazz"
       ],
-      "time_offset_sec": -0.09,
+      "time_offset": -0.09,
       "upbeat_beats": 3.0
     },
     {
@@ -861,7 +861,7 @@
         "dnb",
         "vocal"
       ],
-      "time_offset_sec": -0.03,
+      "time_offset": -0.03,
       "upbeat_beats": 1.0
     },
     {
@@ -875,7 +875,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -889,7 +889,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -903,7 +903,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.06,
+      "time_offset": 0.06,
       "upbeat_beats": 0.0
     },
     {
@@ -917,7 +917,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -932,7 +932,7 @@
         "jungle",
         "vocals"
       ],
-      "time_offset_sec": 0.03,
+      "time_offset": 0.03,
       "upbeat_beats": 0.0
     },
     {
@@ -946,7 +946,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -961,7 +961,7 @@
         "jungle",
         "voice"
       ],
-      "time_offset_sec": 0.08970442505472676,
+      "time_offset": 0.08970442505472676,
       "upbeat_beats": 0.0
     },
     {
@@ -975,7 +975,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -989,7 +989,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1003,7 +1003,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.01,
+      "time_offset": 0.01,
       "upbeat_beats": 0.0
     },
     {
@@ -1017,7 +1017,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1031,7 +1031,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1047,7 +1047,7 @@
         "flute",
         "sax"
       ],
-      "time_offset_sec": 0.23,
+      "time_offset": 0.23,
       "upbeat_beats": 0.0
     },
     {
@@ -1062,7 +1062,7 @@
         "dnb",
         "vocals"
       ],
-      "time_offset_sec": 0.21,
+      "time_offset": 0.21,
       "upbeat_beats": 0.0
     },
     {
@@ -1077,7 +1077,7 @@
         "dnb",
         "vocals"
       ],
-      "time_offset_sec": 0.04,
+      "time_offset": 0.04,
       "upbeat_beats": 0.0
     },
     {
@@ -1092,7 +1092,7 @@
         "dnb",
         "vocal"
       ],
-      "time_offset_sec": 0.21,
+      "time_offset": 0.21,
       "upbeat_beats": 0.0
     },
     {
@@ -1106,7 +1106,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": -0.75
     },
     {
@@ -1120,7 +1120,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1135,7 +1135,7 @@
         "dnb",
         "jazz"
       ],
-      "time_offset_sec": 0.08,
+      "time_offset": 0.08,
       "upbeat_beats": 0.0
     },
     {
@@ -1150,7 +1150,7 @@
         "dnb",
         "jazz"
       ],
-      "time_offset_sec": 0.03,
+      "time_offset": 0.03,
       "upbeat_beats": 0.0
     },
     {
@@ -1165,7 +1165,7 @@
         "dnb",
         "jazz"
       ],
-      "time_offset_sec": 0.035,
+      "time_offset": 0.035,
       "upbeat_beats": 0.0
     },
     {
@@ -1179,7 +1179,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1193,7 +1193,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.020754037996682247,
+      "time_offset": 0.020754037996682247,
       "upbeat_beats": 0.0
     },
     {
@@ -1207,7 +1207,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.05,
+      "time_offset": 0.05,
       "upbeat_beats": 0.0
     },
     {
@@ -1221,7 +1221,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1235,7 +1235,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1249,7 +1249,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.01611416548340472,
+      "time_offset": 0.01611416548340472,
       "upbeat_beats": 0.0
     },
     {
@@ -1263,7 +1263,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.05,
+      "time_offset": 0.05,
       "upbeat_beats": 0.0
     },
     {
@@ -1277,7 +1277,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 8.0
     },
     {
@@ -1291,7 +1291,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 3.5714507083280864,
+      "time_offset": 3.5714507083280864,
       "upbeat_beats": 0.0
     },
     {
@@ -1305,7 +1305,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.026899806147572036,
+      "time_offset": 0.026899806147572036,
       "upbeat_beats": 0.0
     },
     {
@@ -1319,7 +1319,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1333,7 +1333,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1348,7 +1348,7 @@
         "acid",
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1362,7 +1362,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1376,7 +1376,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1390,7 +1390,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.31,
+      "time_offset": 0.31,
       "upbeat_beats": 0.0
     },
     {
@@ -1405,7 +1405,7 @@
         "dnb",
         "voice"
       ],
-      "time_offset_sec": 0.13,
+      "time_offset": 0.13,
       "upbeat_beats": 0.0
     },
     {
@@ -1420,7 +1420,7 @@
         "Sofa",
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1434,7 +1434,7 @@
         "217",
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1449,7 +1449,7 @@
         "dnb",
         "vocal"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 1.0
     },
     {
@@ -1463,7 +1463,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1477,7 +1477,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1491,7 +1491,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1505,7 +1505,7 @@
       "tags": [
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1520,7 +1520,7 @@
         "hard",
         "jungle"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1535,7 +1535,7 @@
         "dnb",
         "voice"
       ],
-      "time_offset_sec": 0.07,
+      "time_offset": 0.07,
       "upbeat_beats": 4.0
     },
     {
@@ -1549,7 +1549,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": -0.11,
+      "time_offset": -0.11,
       "upbeat_beats": 1.0
     },
     {
@@ -1564,7 +1564,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1580,7 +1580,7 @@
         "globular",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1596,7 +1596,7 @@
         "globular",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1612,7 +1612,7 @@
         "ott",
         "psy"
       ],
-      "time_offset_sec": 0.3026642572274748,
+      "time_offset": 0.3026642572274748,
       "upbeat_beats": 0.0
     },
     {
@@ -1627,7 +1627,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1641,7 +1641,7 @@
       "tags": [
         "jungle"
       ],
-      "time_offset_sec": 0.015941035857304442,
+      "time_offset": 0.015941035857304442,
       "upbeat_beats": 0.0
     },
     {
@@ -1656,7 +1656,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.02,
+      "time_offset": 0.02,
       "upbeat_beats": 0.0
     },
     {
@@ -1671,7 +1671,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.06,
+      "time_offset": 0.06,
       "upbeat_beats": 0.0
     },
     {
@@ -1686,7 +1686,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1700,7 +1700,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1715,7 +1715,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -1730,7 +1730,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -1745,7 +1745,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.02,
+      "time_offset": 0.02,
       "upbeat_beats": 0.0
     },
     {
@@ -1760,7 +1760,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1776,7 +1776,7 @@
         "techno",
         "vocals"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1792,7 +1792,7 @@
         "piano",
         "techno"
       ],
-      "time_offset_sec": 0.2,
+      "time_offset": 0.2,
       "upbeat_beats": 0.0
     },
     {
@@ -1808,7 +1808,7 @@
         "techno",
         "vocals"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -1825,7 +1825,7 @@
         "techno",
         "voice"
       ],
-      "time_offset_sec": 0.1,
+      "time_offset": 0.1,
       "upbeat_beats": 0.0
     },
     {
@@ -1842,7 +1842,7 @@
         "techno",
         "vocals"
       ],
-      "time_offset_sec": 0.055,
+      "time_offset": 0.055,
       "upbeat_beats": 0.0
     },
     {
@@ -1857,7 +1857,7 @@
         "melodic",
         "techno"
       ],
-      "time_offset_sec": 0.19,
+      "time_offset": 0.19,
       "upbeat_beats": 0.0
     },
     {
@@ -1872,7 +1872,7 @@
         "Polymorph",
         "dnb"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1887,7 +1887,7 @@
         "forest",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1901,7 +1901,7 @@
       "tags": [
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1916,7 +1916,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1925,7 +1925,7 @@
       "cue_bars": [],
       "filename": "Psytrance/DVSM Records/Yggdrasil - Yggdrasil - Ratatosk-875681555.mp3",
       "tags": [],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1940,7 +1940,7 @@
         "psy",
         "vocal"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1956,7 +1956,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1972,7 +1972,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -1989,7 +1989,7 @@
         "psy",
         "voice"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2004,7 +2004,7 @@
         "Samra",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2020,7 +2020,7 @@
         "progressive",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2036,7 +2036,7 @@
         "progressive",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 4.0
     },
     {
@@ -2051,7 +2051,7 @@
         "Samra",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2067,7 +2067,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2083,7 +2083,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2095,7 +2095,7 @@
       ],
       "filename": "Psytrance/Ovnimoon Records/Wizack Twizack - Wizack Twizack - Fly With Us (OVNICD123 - Ovnimoon records)/Wizack Twizack - Mdmadvicer [1279341932].mp3",
       "tags": [],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2111,7 +2111,7 @@
         "progressive",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2126,7 +2126,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 1.0
     },
     {
@@ -2141,7 +2141,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": -0.01953249674629376,
+      "time_offset": -0.01953249674629376,
       "upbeat_beats": 0.0
     },
     {
@@ -2156,7 +2156,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 1.0
     },
     {
@@ -2172,7 +2172,7 @@
         "intro",
         "psy"
       ],
-      "time_offset_sec": -0.272,
+      "time_offset": -0.272,
       "upbeat_beats": 0.0
     },
     {
@@ -2187,7 +2187,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2202,7 +2202,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2217,7 +2217,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.11,
+      "time_offset": 0.11,
       "upbeat_beats": 1.0
     },
     {
@@ -2232,7 +2232,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2248,7 +2248,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2263,7 +2263,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2278,7 +2278,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2294,7 +2294,7 @@
         "psy",
         "voice"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2310,7 +2310,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2325,7 +2325,7 @@
         "RisingDust",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2340,7 +2340,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2356,7 +2356,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2371,7 +2371,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2387,7 +2387,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": -0.25
     },
     {
@@ -2403,7 +2403,7 @@
         "acid",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2415,7 +2415,7 @@
       ],
       "filename": "Visionary Shamanics/Downtempo/Dubnotic - HUMAN NATURE (EP)/04 - Mind frames.flac",
       "tags": [],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2430,7 +2430,7 @@
         "psy",
         "step"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2445,7 +2445,7 @@
         "downtempo",
         "psy"
       ],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2457,7 +2457,7 @@
       ],
       "filename": "Visionary Shamanics/Downtempo/Various Artists - Spiritual Alchemy/10 - DUBNOTIC - Flying Carpet.flac",
       "tags": [],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
@@ -2469,7 +2469,7 @@
       ],
       "filename": "Visionary Shamanics/Downtempo/Various Artists - Temple of Dub/Vol. 1/25 - BALANCE - Lightness.flac",
       "tags": [],
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     }
   ],

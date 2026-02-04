@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cctype>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <concepts>
 #include <cstring> // for std::memcpy
@@ -50,6 +51,15 @@
 #include <readline/readline.h>
 #include <samplerate.h>
 
+NLOHMANN_JSON_NAMESPACE_BEGIN
+template<> struct adl_serializer<std::chrono::duration<double>> {
+  static void to_json(json &j, std::chrono::duration<double> const &d)
+  { j = d.count(); }
+  static void from_json(json const &j, std::chrono::duration<double> &d)
+  { d = std::chrono::duration<double>(j.get<double>()); }
+};
+NLOHMANN_JSON_NAMESPACE_END
+
 namespace {
 
 // We rely on mdspan's C++23 multi-arg operator[] for indexing (e.g., out[i, ch]).
@@ -60,6 +70,8 @@ using boost::math::statistics::simple_ordinary_least_squares_with_R_squared;
 using nlohmann::json;
 using std::abs, std::ceil, std::clamp, std::floor, std::min, std::max;
 using std::cerr, std::cout;
+namespace chrono = std::chrono;
+using namespace std::literals::chrono_literals;
 using std::expected, std::unexpected;
 using std::filesystem::path;
 using std::floating_point;
@@ -68,8 +80,8 @@ using std::is_arithmetic_v, std::is_floating_point_v, std::is_integral_v,
       std::is_same_v;
 using std::optional, std::nullopt;
 using std::println;
-namespace ranges { using namespace std::ranges; }
-namespace views { using namespace std::views; }
+namespace ranges = std::ranges;
+namespace views = std::views;
 using std::runtime_error;
 using std::shared_ptr, std::unique_ptr;
 using std::span;
@@ -138,7 +150,7 @@ public:
   interleaved& operator=(interleaved&&) noexcept = default;
 
   [[nodiscard]] size_t   frames()   const noexcept { return frames_; }
-  [[nodiscard]] double   duration() const noexcept { return double(frames()) / sample_rate; }
+  [[nodiscard]] chrono::duration<double>   duration() const noexcept { return chrono::duration<double>(double(frames()) / sample_rate); }
   [[nodiscard]] size_t   channels() const noexcept { return channels_; }
   [[nodiscard]] size_t   samples()  const noexcept { return storage.size(); }
   [[nodiscard]] T*       data()       noexcept     { return storage.data(); }
@@ -456,13 +468,13 @@ struct track_info {
   unsigned beats_per_bar = 4;
   double bpm = 120.0; // required > 0
   double upbeat_beats = 0.0;
-  double time_offset_sec = 0.0;
+  chrono::duration<double> time_offset = 0.0s;
   vector<int> cue_bars; // 1-based bar numbers
   std::set<string> tags; // unique tags
 };
 
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
-  filename, beats_per_bar, bpm, upbeat_beats, time_offset_sec, cue_bars, tags
+  filename, beats_per_bar, bpm, upbeat_beats, time_offset, cue_bars, tags
 )
 
 // Compute cue frames for a track_info at a given sample rate.
@@ -473,7 +485,7 @@ cue_frames(track_info const& info,
 ) {
   const auto frames_per_beat = 60.0 / bpm_override.value_or(info.bpm) * sr;
   auto bar_to_frame =
-    [ shift = info.upbeat_beats * frames_per_beat + info.time_offset_sec * sr
+    [ shift = info.upbeat_beats * frames_per_beat + info.time_offset.count() * sr
     , frames_per_bar = frames_per_beat * info.beats_per_bar
     ](int bar) { return shift + (bar - 1) * frames_per_bar; };
 
@@ -884,7 +896,7 @@ struct mix_cue {
   unsigned   bar;        // 1-based global bar number in the mix
   path       track;      // which track this cue comes from
   unsigned   local_bar;  // bar number within that track (1-based)
-  double     time_sec;   // absolute time in the rendered mix (seconds)
+  chrono::duration<double>     time;   // absolute time in the rendered mix (seconds)
 };
 
 vector<mix_cue> g_mix_cues;
@@ -1107,7 +1119,7 @@ enum class TransientMethod {
 };
 
 // Onset detection for beat-grid fitting
-[[nodiscard]] vector<double>
+[[nodiscard]] vector<chrono::duration<double>>
 detect_onsets(const interleaved<float>& track)
 {
   if (track.sample_rate == 0 || track.channels() == 0 || track.frames() == 0) {
@@ -1131,16 +1143,16 @@ detect_onsets(const interleaved<float>& track)
     throw runtime_error("aubio: failed to allocate onset buffers");
   }
 
-  vector<double> result;
+  vector<chrono::duration<double>> result;
 
   for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_onset_do(onset.get(), buffer, outbuf.get());
 
     // onset detected in this hop?
     if (fvec_get_sample(outbuf.get(), 0) != smpl_t(0)) {
-      const auto t_sec = double(aubio_onset_get_last_s(onset.get()));
-      if (t_sec >= 0.0 && t_sec <= track.duration()) {
-        result.push_back(t_sec);
+      const auto t = chrono::duration<double>(aubio_onset_get_last_s(onset.get()));
+      if (t >= 0.0s && t <= track.duration()) {
+        result.push_back(t);
       }
     }
   });
@@ -1152,7 +1164,7 @@ detect_onsets(const interleaved<float>& track)
 }
 
 // Beat detection using aubio_tempo (aubiotrack-style beat tracker).
-[[nodiscard]] vector<double>
+[[nodiscard]] vector<chrono::duration<double>>
 detect_beats(const interleaved<float>& track)
 {
   const uint_t win_s = 1024;
@@ -1170,16 +1182,16 @@ detect_beats(const interleaved<float>& track)
     throw runtime_error("aubio: failed to allocate tempo buffers");
   }
 
-  vector<double> result;
+  vector<chrono::duration<double>> result;
 
   for_each_mono_chunk(track, inbuf.get(), [&](fvec_t *buffer) {
     aubio_tempo_do(tempo.get(), buffer, tempo_out.get());
 
     // Beat detected in this hop?
     if (fvec_get_sample(tempo_out.get(), 0) != smpl_t(0)) {
-      const auto t_sec = double(aubio_tempo_get_last_s(tempo.get()));
-      if (t_sec >= 0.0 && t_sec <= track.duration()) {
-        result.push_back(t_sec);
+      const auto t = chrono::duration<double>(aubio_tempo_get_last_s(tempo.get()));
+      if (t >= 0.0s && t <= track.duration()) {
+        result.push_back(t);
       }
     }
   });
@@ -1201,7 +1213,7 @@ struct BeatGridMatch {
 
 [[nodiscard]] BeatGridMatch
 match_beats(const track_info& ti, const interleaved<float>& track,
-  TransientMethod method, double window_sec = 0.05
+  TransientMethod method, chrono::duration<double> window = 50ms
 ) {
   BeatGridMatch out;
   if (ti.cue_bars.size() < 2) return out; // need at least first & last cue bar
@@ -1217,7 +1229,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
   if (first_bar >= last_bar) return out;
 
   // Detect transients according to method (exceptions propagate to caller)
-  vector<double> onsetTimes = (method == TransientMethod::Beats)
+  const auto onsetTimes = (method == TransientMethod::Beats)
     ? detect_beats(track) : detect_onsets(track);
 
   // Sanity check: enough transients overall
@@ -1225,12 +1237,8 @@ match_beats(const track_info& ti, const interleaved<float>& track,
     return out;
   }
 
-  const double secondsPerBeat = 60.0 / bpm;
-  const double shiftSec =
-      ti.upbeat_beats * secondsPerBeat
-    + ti.time_offset_sec;
-
-  const double window = window_sec;
+  const auto secondsPerBeat = 60.0s / bpm;
+  const auto shiftSec = ti.upbeat_beats * secondsPerBeat + ti.time_offset;
 
   // Global beat index k: 0 at start of first cue bar
   const double beats_before_first_bar =
@@ -1248,36 +1256,35 @@ match_beats(const track_info& ti, const interleaved<float>& track,
       const double beatIndexFromZero =
           beats_before_first_bar + globalBeatIndex;
 
-      const double gridTime =
-          shiftSec + beatIndexFromZero * secondsPerBeat;
+      const auto gridTime = shiftSec + beatIndexFromZero * secondsPerBeat;
 
-      if (gridTime < 0.0 || gridTime >= duration) {
+      if (gridTime < 0.0s || gridTime >= duration) {
         continue;
       }
 
-      const double lo = gridTime - window;
-      const double hi = gridTime + window;
+      const auto lo = gridTime - window;
+      const auto hi = gridTime + window;
 
       auto it = std::lower_bound(
         onsetTimes.begin(), onsetTimes.end(),
-        max(0.0, lo)
+        max(0.0s, lo)
       );
 
-      double bestTime = -1.0;
-      double bestAbs  = std::numeric_limits<double>::infinity();
+      auto bestTime = -1.0s;
+      auto bestAbs  = chrono::duration<double>(std::numeric_limits<double>::infinity());
 
       for (; it != onsetTimes.end() && *it <= hi; ++it) {
-        double d = *it - gridTime;
-        double a = abs(d);
+        auto d = *it - gridTime;
+        auto a = abs(d);
         if (a < bestAbs) {
           bestAbs = a;
           bestTime = *it;
         }
       }
 
-      if (bestTime >= 0.0) {
+      if (bestTime >= 0.0s) {
         out.beat_indices.push_back(globalBeatIndex);
-        out.onset_times.push_back(bestTime);
+        out.onset_times.push_back(bestTime.count());
       }
     }
   }
@@ -1285,17 +1292,16 @@ match_beats(const track_info& ti, const interleaved<float>& track,
   return out;
 }
 
-struct GridFitResult {
-  double offset_sec = 0.0;  // time of beat 0 (seconds)
-  double beat_sec   = 0.0;  // seconds per beat
+struct grid_fit_result {
+  chrono::duration<double> offset = 0.0s;  // time of beat 0 (seconds)
+  chrono::duration<double> beat   = 0.0s;  // seconds per beat
   size_t n          = 0;
   double R2         = 0.0;  // coefficient of determination
 };
 
-[[nodiscard]] GridFitResult
-fit_grid(const BeatGridMatch& m)
+[[nodiscard]] grid_fit_result fit_grid(const BeatGridMatch& m)
 {
-  GridFitResult r{};
+  grid_fit_result r{};
   const size_t n = m.beat_indices.size();
   if (n < 2 || m.onset_times.size() != n) return r;
 
@@ -1305,43 +1311,37 @@ fit_grid(const BeatGridMatch& m)
 
   if (!(B > 0.0)) return r;
 
-  r.offset_sec = A;
-  r.beat_sec   = B;
+  r.offset = chrono::duration<double>(A);
+  r.beat   = chrono::duration<double>(B);
   r.n          = n;
   r.R2         = R2;
   return r;
 }
 
-struct BPMOffsetCorrection {
+struct bpm_offset_correction {
   double new_bpm = 0.0;
-  double new_time_offset_sec = 0.0;
+  chrono::duration<double> new_time_offset = 0.0s;
 };
 
-[[nodiscard]] BPMOffsetCorrection
+[[nodiscard]] bpm_offset_correction
 compute_bpm_offset_correction(const track_info& ti,
-                              const GridFitResult& fit)
+                              const grid_fit_result& fit)
 {
-  BPMOffsetCorrection c{};
-  if (fit.n < 2 || fit.beat_sec <= 0.0) return c;
+  bpm_offset_correction c{};
+  if (fit.n < 2 || fit.beat <= 0.0s) return c;
 
-  const double secondsPerBeat = fit.beat_sec;
-  const double bpm = 60.0 / secondsPerBeat;
-
-  const double A = fit.offset_sec; // time (sec) of beat 0 (start of first cue bar)
+  const auto secondsPerBeat = fit.beat;
 
   const int first_bar = ti.cue_bars.front();
   const double beats_before_first_bar =
       ti.upbeat_beats
     + (double)(first_bar - 1) * (double)ti.beats_per_bar;
 
-  const double shiftSec =
-      A - beats_before_first_bar * secondsPerBeat;
+  const auto shiftSec = fit.offset - beats_before_first_bar * secondsPerBeat;
 
-  const double time_offset_sec =
-      shiftSec - ti.upbeat_beats * secondsPerBeat;
+  c.new_bpm = 60.0s / secondsPerBeat;
+  c.new_time_offset = shiftSec - ti.upbeat_beats * secondsPerBeat;
 
-  c.new_bpm = bpm;
-  c.new_time_offset_sec = time_offset_sec;
   return c;
 }
 
@@ -1539,9 +1539,9 @@ struct mix_result {
       unsigned beats_from_zero = round(mix_frame / fpb);
       unsigned bar = (beats_from_zero / result.bpb) + 1;
 
-      double time_sec = mix_frame / static_cast<double>(out_rate);
+      auto time = chrono::duration<double>(mix_frame / static_cast<double>(out_rate));
 
-      result.cues.push_back(mix_cue{bar, it.info.filename, local_bar, time_sec});
+      result.cues.push_back(mix_cue{bar, it.info.filename, local_bar, time});
     }
   }
 
@@ -1818,7 +1818,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
   println("BPM: {:.2f}", ti.bpm);
   println("Beats/bar: {}", ti.beats_per_bar);
   println("Upbeat (beats): {:.3f}", ti.upbeat_beats);
-  println("Time offset (s): {:.3f}", ti.time_offset_sec);
+  println("Time offset (s): {:.3f}", ti.time_offset.count());
 
   // Initialize player state for this track (not playing yet)
   g_player.track = tr;
@@ -1830,7 +1830,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
   g_player.metro.bpm.store(ti.bpm);
   g_player.metro.bpb.store(max(1U, ti.beats_per_bar));
   g_player.upbeatBeats.store(ti.upbeat_beats);
-  g_player.timeOffsetSec.store(ti.time_offset_sec);
+  g_player.timeOffsetSec.store(ti.time_offset.count());
 
   auto print_estimated_bars = [&](){
     auto bpmNow = max(1.0, g_player.metro.bpm.load());
@@ -1920,11 +1920,11 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
     "offset [seconds] - get/set time offset in seconds (can be negative)",
     [&](command_args a) {
       if (a.empty()) {
-        println("Time offset (s): {:.3f}", ti.time_offset_sec);
+        println("Time offset (s): {:.3f}", ti.time_offset.count());
         return;
       }
       if (auto v = parse_number<double>(a[0]); v) {
-        ti.time_offset_sec = *v;
+        ti.time_offset = chrono::duration<double>(*v);
         g_player.timeOffsetSec.store(*v);
         dirty = true;
         print_estimated_bars();
@@ -2063,11 +2063,11 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
         return;
       }
 
-      double window_ms = 50.0;   // +/- 50 ms search window
+      auto window_ms = 50;   // +/- 50 ms search window
       TransientMethod method = TransientMethod::Beats; // default
 
       if (a.size() >= 1) {
-        if (auto v = parse_number<double>(a[0]); v && *v > 0.0) {
+        if (auto v = parse_number<int>(a[0]); v && *v > 0.0) {
           window_ms = *v;
         } else {
           println(cerr, "Invalid window_ms: {}", v ? "must be > 0" : v.error());
@@ -2091,7 +2091,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
 
       try {
         auto matches = match_beats(
-          ti, *tr, method, window_ms * 1e-3
+          ti, *tr, method, chrono::milliseconds(window_ms)
         );
         if (matches.beat_indices.size() < 4) {
           println(cerr, "Too few matched transients for reliable fit.");
@@ -2099,14 +2099,13 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
         }
 
         auto fit = fit_grid(matches);
-        if (fit.n < 4 || fit.beat_sec <= 0.0) {
+        if (fit.n < 4 || fit.beat <= 0.0s) {
           println(cerr, "Grid fit failed.");
           return;
         }
 
-        println(cout,
-          "Fit over {} beats: secondsPerBeat = {:.6f}, R^2 = {:.6f}",
-          fit.n, fit.beat_sec, fit.R2
+        println("Fit over {} beats: secondsPerBeat = {:.6f}, R^2 = {:.6f}",
+          fit.n, fit.beat.count(), fit.R2
         );
 
         // R^2 sanity check: require a very straight line
@@ -2139,19 +2138,17 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
           return;
         }
 
-        println(cout,
-          "Old BPM: {:.4f}, new BPM: {:.4f}",
+        println("Old BPM: {:.4f}, new BPM: {:.4f}",
           ti.bpm, corr.new_bpm
         );
-        println(cout,
-          "Old time offset: {:.6f} s, new time offset: {:.6f} s",
-          ti.time_offset_sec, corr.new_time_offset_sec
+        println("Old time offset: {:.6f} s, new time offset: {:.6f} s",
+          ti.time_offset.count(), corr.new_time_offset.count()
         );
 
         ti.bpm = corr.new_bpm;
-        ti.time_offset_sec = corr.new_time_offset_sec;
+        ti.time_offset = corr.new_time_offset;
         g_player.metro.bpm.store(ti.bpm);
-        g_player.timeOffsetSec.store(ti.time_offset_sec);
+        g_player.timeOffsetSec.store(ti.time_offset.count());
         dirty = true;
         print_estimated_bars();
       } catch (const std::exception& e) {
@@ -2203,7 +2200,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
         auto bpmNow = max(1.0, g_player.metro.bpm.load());
         unsigned bpbNow = max(1U, g_player.metro.bpb.load());
         double framesPerBeat = (double)tr->sample_rate * 60.0 / (double)bpmNow;
-        double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset_sec * (double)tr->sample_rate;
+        double shift = ti.upbeat_beats * framesPerBeat + ti.time_offset.count() * (double)tr->sample_rate;
         double target = shift + (double)bar0 * static_cast<double>(bpbNow) * framesPerBeat;
         size_t total_frames = tr->frames();
         if (target >= (double)total_frames) target = (double)total_frames - 1.0;
@@ -2306,10 +2303,10 @@ void write_cuesheet(path const &cue_path,
     return;
   }
 
-  auto format_time = [](double t_sec) -> string
+  auto format_time = [](chrono::duration<double> t) -> string
   {
-    assert(t_sec >= 0);
-    const auto frames = static_cast<int>(std::round(t_sec * 75.0));
+    assert(t >= 0s);
+    const auto frames = static_cast<int>(std::round(t.count() * 75.0));
 
     return std::format("{:02d}:{:02d}:{:02d}",
       frames / (75 * 60), (frames / 75) % 60, frames % 75
@@ -2346,7 +2343,7 @@ void write_cuesheet(path const &cue_path,
       println(sheet, "  TRACK {:02d} AUDIO", track_no + 1);
       auto title = cuepoint.track.filename().stem().generic_string();
       println(sheet, "    TITLE \"{}\"", escape(title));
-      println(sheet, "    INDEX 01 {}", format_time(cuepoint.time_sec));
+      println(sheet, "    INDEX 01 {}", format_time(cuepoint.time));
     }
   }
 }
@@ -2643,7 +2640,7 @@ int main(int argc, char** argv)
       if (!mix_tracks.empty()) {
 	if (auto* ti0 = database.find(mix_tracks.front())) {
 	  g_player.upbeatBeats.store(ti0->upbeat_beats);
-	  g_player.timeOffsetSec.store(ti0->time_offset_sec);
+	  g_player.timeOffsetSec.store(ti0->time_offset.count());
 	} else {
 	  g_player.upbeatBeats.store(0.0);
 	  g_player.timeOffsetSec.store(0.0);
