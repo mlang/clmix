@@ -995,6 +995,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        81,
+        193
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPIN058 - ScattyOne - Get Hyper EP/Deep In The Jungle Records - ScattyOne - Can't Touch [2113070416].mp3",
+      "tags": [
+        "jungle",
+        "vocals"
+      ],
+      "time_offset": 0.13,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         65,
