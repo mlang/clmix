@@ -1483,6 +1483,20 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 160.0,
+      "cue_bars": [
+        35,
+        163
+      ],
+      "filename": "DnB/Straight Up Breakbeat/DDOG - Nema In Orbit-2881737074.mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 170.0,
       "cue_bars": [
         49,
