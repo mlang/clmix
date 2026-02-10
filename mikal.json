@@ -1129,6 +1129,22 @@
       "bpm": 174.0,
       "cue_bars": [
         33,
+        281
+      ],
+      "filename": "DnB/Fokuz Recordings/SMP - Brigther Days On The Surface - Unrequited Love/SMP - Brigther Days On The Surface ft. Matt Freeman [1928023828].mp3",
+      "tags": [
+        "dnb",
+        "piano",
+        "vocals"
+      ],
+      "time_offset": 0.21,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        33,
         205
       ],
       "filename": "DnB/Fokuz Recordings/Unknown Artist - The Unknown Collection Vol 4/Unknown Artist - U.N.I.T.Y. [414938824].mp3",
@@ -1638,6 +1654,20 @@
       ],
       "time_offset": 0.07,
       "upbeat_beats": 4.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 170.0081200211445,
+      "cue_bars": [
+        33,
+        249
+      ],
+      "filename": "DnB/UVB-76 Music/Overlook - Into The Night feat. Cern [3782490586].mp3",
+      "tags": [
+        "dnb"
+      ],
+      "time_offset": 0.11748933904868153,
+      "upbeat_beats": 0.0
     },
     {
       "beats_per_bar": 4,
