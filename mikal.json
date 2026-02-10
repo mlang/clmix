@@ -851,6 +851,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 170.0,
+      "cue_bars": [
+        33,
+        193
+      ],
+      "filename": "DnB/Blu Mar Ten/RQ - Shimmer - Traces/01 - Shimmer.flac",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 172.00186502893314,
       "cue_bars": [
         81,
