@@ -1157,6 +1157,22 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 172.0,
+      "cue_bars": [
+        17,
+        281
+      ],
+      "filename": "DnB/Fokuz Recordings/Unknown Artist - The Unknown Collection Vol 3/Unknown Artist - Children [2299180335].mp3",
+      "tags": [
+        "children",
+        "dnb",
+        "piano"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 174.0,
       "cue_bars": [
         33,
