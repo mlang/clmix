@@ -1095,6 +1095,21 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        33,
+        209
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPINLPX1 - Deep In The Jungle Anthems X (2014 - 2024)/19 - KALUM - Condition.flac",
+      "tags": [
+        "jungle",
+        "ragga"
+      ],
+      "time_offset": 0.08,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 174.0,
       "cue_bars": [
         49,
@@ -1212,6 +1227,51 @@
         "dnb"
       ],
       "time_offset": 0.01,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        33,
+        289
+      ],
+      "filename": "DnB/Horizons Music/Seba + Paradox - Seba + Paradox - Time Starts Now [2361141142].mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 174.0,
+      "cue_bars": [
+        74,
+        274
+      ],
+      "filename": "DnB/Innerground Records/Amante - Growth [2579812320].mp3",
+      "tags": [
+        "dnb",
+        "jazz",
+        "piano"
+      ],
+      "time_offset": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.0,
+      "cue_bars": [
+        65,
+        249
+      ],
+      "filename": "DnB/Innerground Records/DJ Marky & S.P.Y - DJ Marky & S.P.Y - Yellow Shoes (Calibre Remix) [717748668].mp3",
+      "tags": [
+        "dnb",
+        "jazz"
+      ],
+      "time_offset": 0.0,
       "upbeat_beats": 0.0
     },
     {
