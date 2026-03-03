@@ -267,13 +267,6 @@ measure_lufs(const interleaved<float> &audio)
   return lufs;
 }
 
-[[nodiscard]] inline double tempo_stretch_ratio(
-  uint32_t from_rate, uint32_t to_rate,
-  double from_bpm, double to_bpm
-) {
-  return (double(to_rate) / double(from_rate)) * (from_bpm / to_bpm);
-}
-
 [[nodiscard]] expected<interleaved<float>, string>
 change_tempo(const interleaved<float>& in,
   double from_bpm, double to_bpm, uint32_t to_rate, int src_type
@@ -300,7 +293,7 @@ change_tempo(const interleaved<float>& in,
   // Resampling ratio so that when played at to_rate, tempo becomes to_bpm.
   // Derivation: tempo_out = tempo_in * (to_rate / (ratio * from_rate))
   // -> ratio = (to_rate/from_rate) * (from_bpm/to_bpm)
-  const auto ratio = tempo_stretch_ratio(in.sample_rate, to_rate, from_bpm, to_bpm);
+  const auto ratio = (double(to_rate) / in.sample_rate) * (from_bpm / to_bpm);
 
   // With valid inputs, ratio must be finite and > 0.
   assert(ratio > 0.0);
@@ -488,13 +481,11 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
 // If bpm_override is not provided, track_info::bpm is used.
 [[nodiscard]] vector<double>
 cue_frames(track_info const& info,
-  uint32_t sr, optional<double> bpm_override = nullopt,
-  double time_scale = 1.0
+  uint32_t sr, optional<double> bpm_override = nullopt
 ) {
   const auto frames_per_beat = 60.0 / bpm_override.value_or(info.bpm) * sr;
   auto bar_to_frame =
-    [ shift = info.upbeat_beats * frames_per_beat
-            + (info.time_offset.count() * time_scale) * sr
+    [ shift = info.upbeat_beats * frames_per_beat + info.time_offset.count() * sr
     , frames_per_bar = frames_per_beat * info.beats_per_bar
     ](int bar) { return shift + (bar - 1) * frames_per_bar; };
 
@@ -1406,7 +1397,6 @@ struct mix_result {
   struct Item {
     track_info info;
     interleaved<float> audio;
-    uint32_t in_rate = 0;
     double first_cue;
     double last_cue;
     double lufs;
@@ -1419,24 +1409,14 @@ struct mix_result {
     [&](track_info const& info) -> expected<Item, string> {
       return load_track(info.filename).and_then(
         [&](interleaved<float> audio) {
-          const uint32_t in_rate = audio.sample_rate;
           ensure_headroom(audio.sample_view(), -2.0F);
-          return change_tempo(audio, info.bpm, bpm, out_rate, src_type).transform(
-            [&](interleaved<float> out_audio) {
-              return std::pair<uint32_t, interleaved<float>>{in_rate, std::move(out_audio)};
-            }
-          );
+          return change_tempo(audio, info.bpm, bpm, out_rate, src_type);
         }
       ).and_then(
-        [&](std::pair<uint32_t, interleaved<float>> p) -> expected<Item, string> {
-          const uint32_t in_rate = p.first;
-          interleaved<float> audio = std::move(p.second);
-
+        [&](interleaved<float> audio) -> expected<Item, string> {
           size_t frames = audio.frames();
 
-          const double time_scale =
-            tempo_stretch_ratio(in_rate, out_rate, info.bpm, bpm);
-          auto cueFs = cue_frames(info, out_rate, bpm, time_scale);
+          auto cueFs = cue_frames(info, out_rate, bpm);
           double first_cue = 0.0;
           double last_cue  = 0.0;
 
@@ -1455,7 +1435,7 @@ struct mix_result {
           return measure_lufs(audio).and_then(
             [&](double lufs) -> expected<Item, string> {
               return Item{
-                info, std::move(audio), in_rate, first_cue, last_cue, lufs
+                info, std::move(audio), first_cue, last_cue, lufs
               };
             }
           );
@@ -1551,9 +1531,7 @@ struct mix_result {
   // Build cues
   result.cues.clear();
   for (auto& it : items) {
-    const double time_scale =
-      tempo_stretch_ratio(it.in_rate, out_rate, it.info.bpm, bpm);
-    auto cueFs = cue_frames(it.info, out_rate, bpm, time_scale);
+    auto cueFs = cue_frames(it.info, out_rate, bpm);
     for (size_t idx2 = 0; idx2 < cueFs.size(); ++idx2) {
       unsigned local_bar = it.info.cue_bars[idx2];
       double mix_frame = it.offset + cueFs[idx2];
