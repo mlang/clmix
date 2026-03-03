@@ -483,9 +483,14 @@ NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(track_info,
 cue_frames(track_info const& info,
   uint32_t sr, optional<double> bpm_override = nullopt
 ) {
-  const auto frames_per_beat = 60.0 / bpm_override.value_or(info.bpm) * sr;
+  const double bpm_new = bpm_override.value_or(info.bpm);
+  const auto frames_per_beat = 60.0 / bpm_new * sr;
+
+  // When time-stretching from info.bpm -> bpm_new, time offsets scale by (old/new).
+  const double time_scale = info.bpm / bpm_new;
+
   auto bar_to_frame =
-    [ shift = info.upbeat_beats * frames_per_beat + info.time_offset.count() * sr
+    [ shift = info.upbeat_beats * frames_per_beat + (info.time_offset.count() * time_scale) * sr
     , frames_per_bar = frames_per_beat * info.beats_per_bar
     ](int bar) { return shift + (bar - 1) * frames_per_bar; };
 
