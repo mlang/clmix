@@ -804,11 +804,15 @@ struct track_database {
 
 track_database load_database(const path& dbfile)
 {
+  track_database database;
+  if (!std::filesystem::exists(dbfile)) {
+    return database; // start with an empty DB; file will be created on save
+  }
+
   std::ifstream in;
   in.exceptions(std::ifstream::failbit | std::ifstream::badbit);
   in.open(dbfile);
 
-  track_database database;
   json j;
   in >> j;
 

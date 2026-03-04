@@ -81,7 +81,7 @@ The DB stores, per track:
 - `beats_per_bar` (e.g. 4)
 - `bpm`
 - `upbeat_beats` (offset in beats before bar 1; can be negative)
-- `time_offset_sec` (time offset in seconds; can be negative)
+- `time_offset` (time offset in seconds; can be negative)
 - `cue_bars` (list of bar numbers with cues, 1-based)
 - `tags` (set of strings)
 
@@ -96,7 +96,7 @@ Example entry:
       "beats_per_bar": 4,
       "bpm": 138.0,
       "upbeat_beats": 0.0,
-      "time_offset_sec": 0.0,
+      "time_offset": 0.0,
       "cue_bars": [1, 33, 65],
       "tags": ["trance", "uplifting"]
     }
