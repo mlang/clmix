@@ -1166,9 +1166,9 @@ detect_onsets(const interleaved<float>& track)
     }
   });
 
-  std::sort(result.begin(), result.end());
-  result.erase(std::unique(result.begin(), result.end()),
-               result.end());
+  ranges::sort(result);
+  auto dups = ranges::unique(result);
+  result.erase(dups.begin(), dups.end());
   return result;
 }
 
@@ -1205,11 +1205,8 @@ detect_beats(const interleaved<float>& track)
     }
   });
 
-  std::sort(result.begin(), result.end());
-  result.erase(
-    std::unique(result.begin(), result.end()),
-    result.end()
-  );
+  ranges::sort(result);
+  result.erase(ranges::unique(result).begin(), result.end());
 
   return result;
 }
@@ -1274,10 +1271,7 @@ match_beats(const track_info& ti, const interleaved<float>& track,
       const auto lo = gridTime - window;
       const auto hi = gridTime + window;
 
-      auto it = std::lower_bound(
-        onsetTimes.begin(), onsetTimes.end(),
-        max(0.0s, lo)
-      );
+      auto it = ranges::lower_bound(onsetTimes, max(0.0s, lo));
 
       auto bestTime = -1.0s;
       auto bestAbs  = chrono::duration<double>(std::numeric_limits<double>::infinity());
@@ -1554,10 +1548,9 @@ struct mix_result {
     }
   }
 
-  std::stable_sort(result.cues.begin(), result.cues.end(),
-                   [](const mix_cue& a, const mix_cue& b) {
-                     return a.bar < b.bar;
-                   });
+  ranges::stable_sort(result.cues,
+    [](const mix_cue& a, const mix_cue& b) { return a.bar < b.bar; }
+  );
 
   {
     vector<mix_cue> deduped;
@@ -1777,8 +1770,7 @@ void register_volume_command(REPL& repl, string label) {
       string s = a[0];
       if (s.size() >= 2) {
         string tail = s.substr(s.size() - 2);
-        std::transform(tail.begin(), tail.end(), tail.begin(),
-                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+        ranges::transform(tail, tail.begin(), [](unsigned char c) -> char { return std::tolower(c); });
         if (tail == "db") s.resize(s.size() - 2);
       }
       if (auto v = parse_number<float>(s)) {
@@ -1955,9 +1947,9 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
           println(cerr, "Invalid bar: must be > 0");
           return;
         }
-        if (std::find(ti.cue_bars.begin(), ti.cue_bars.end(), *bar) == ti.cue_bars.end()) {
+        if (!ranges::contains(ti.cue_bars, *bar)) {
           ti.cue_bars.push_back(*bar);
-          std::sort(ti.cue_bars.begin(), ti.cue_bars.end());
+          ranges::sort(ti.cue_bars);
           dirty = true;
         }
         if (ti.cue_bars.empty()) {
@@ -2033,10 +2025,8 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
         return;
       }
       string name = a[0];
-      auto first = std::find_if_not(name.begin(), name.end(),
-                                    [](unsigned char c){ return std::isspace(c); });
-      auto last  = std::find_if_not(name.rbegin(), name.rend(),
-                                    [](unsigned char c){ return std::isspace(c); }).base();
+      auto first = ranges::find_if_not(name, [](unsigned char c){ return std::isspace(c); });
+      auto last  = ranges::find_if_not(name | views::reverse, [](unsigned char c){ return std::isspace(c); }).base();
       if (first >= last) {
         println(cerr, "Empty tag name.");
         return;
@@ -2075,7 +2065,7 @@ void run_track_info_shell(track_database& database, const path& f, const path& t
       auto window_ms = 50;   // +/- 50 ms search window
       TransientMethod method = TransientMethod::Beats; // default
 
-      if (a.size() >= 1) {
+      if (!a.empty()) {
         if (auto v = parse_number<int>(a[0]); v && *v > 0.0) {
           window_ms = *v;
         } else {
@@ -2250,20 +2240,15 @@ char** clmix_completion(const char* text, int start, int end) {
 
   // Extract the first word (command) from the line up to 'start'
   string_view sv(line, static_cast<size_t>(start));
-  auto it = std::find_if_not(sv.begin(), sv.end(),
-                             [](unsigned char c){ return std::isspace(c); });
-  if (it == sv.end()) {
-    return nullptr;
-  }
+  auto it = ranges::find_if_not(sv, [](unsigned char c){ return std::isspace(c); });
+  if (it == sv.end()) return nullptr;
   auto cmd_start = it;
   auto cmd_end = std::find_if(cmd_start, sv.end(),
                               [](unsigned char c){ return std::isspace(c); });
   string cmd(cmd_start, cmd_end);
 
   // Only provide custom completion for the first argument of "track-info"
-  if (cmd != "track-info") {
-    return nullptr;
-  }
+  if (cmd != "track-info") return nullptr;
 
   if (!g_db_for_completion) return nullptr;
 

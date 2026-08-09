@@ -1,0 +1,1 @@
+Checks: 'clang-analyzer-*,clang-diagnostic-*,modernize-return-braced-init-list,modernize-use-ranges,modernize-use-std-*,readability-container-*,readability-convert-member-functions-to-static,readability-duplicate-*,readability-else-after-return,readability-redundant-*,readability-simplify-*'
