@@ -39,8 +39,9 @@
 #include <variant>
 #include <vector>
 
+#include "vendor/ftxui.hpp"
 #include "vendor/mdspan.hpp"
-#include "ftxui.hpp"
+#include "vendor/miniaudio.h"
 
 #include <boost/math/statistics/linear_regression.hpp>
 #include <nlohmann/json.hpp>
@@ -49,7 +50,6 @@
 #include <aubio/aubio.h>
 #include <ebur128.h>
 #include <getopt.h>
-#include <miniaudio.h>
 #include <readline/history.h>
 #include <readline/readline.h>
 #include <samplerate.h>
