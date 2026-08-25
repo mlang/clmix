@@ -20,7 +20,7 @@ endif()
 find_package(Boost REQUIRED CONFIG)
 find_package(TBB REQUIRED CONFIG)
 
-add_executable(clmix main.cpp)
+add_executable(clmix main.cpp ftxui.cpp)
 target_compile_features(clmix PRIVATE cxx_std_23)
 set_property(TARGET clmix PROPERTY CXX_STANDARD_REQUIRED ON)
 target_compile_definitions(clmix

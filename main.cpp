@@ -28,16 +28,19 @@
 #include <random>
 #include <ranges>
 #include <set>
+#include <sstream>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
 #include "vendor/mdspan.hpp"
+#include "ftxui.hpp"
 
 #include <boost/math/statistics/linear_regression.hpp>
 #include <nlohmann/json.hpp>
@@ -891,7 +894,7 @@ struct player_state {
   std::atomic<double> seekTargetFrames{0.0};
 
   // Playback runtime (audio thread)
-  double srcPos = 0.0;              // in source frames (fractional)
+  std::atomic<double> srcPos{0.0};   // in source frames (fractional)
 
   Metronome metro;
 };
@@ -1435,11 +1438,9 @@ struct mix_result {
             last_cue  = clamp(last_cue,  0.0, static_cast<double>(frames - 1));
           }
 
-          return measure_lufs(audio).and_then(
-            [&](double lufs) -> expected<Item, string> {
-              return Item{
-                info, std::move(audio), first_cue, last_cue, lufs
-              };
+          return measure_lufs(audio).transform(
+            [&](double lufs) {
+              return Item{ info, std::move(audio), first_cue, last_cue, lufs };
             }
           );
         }
@@ -1725,13 +1726,14 @@ public:
       auto args = parse_command_line(input);
       if (args.empty()) continue;
 
-      auto it = commands_.find(args[0]);
+      auto cmd = args.front();
+      auto it = commands_.find(cmd);
       if (it == commands_.end()) {
-        println(cerr, "Unknown command: {}", args[0]);
+        println(cerr, "Unknown command: {}", cmd);
         continue;
       }
       try {
-        it->second.fn(span<const string>{args}.subspan(1));
+        it->second.fn(command_args{args}.subspan(1));
       } catch (const std::exception& e) {
         println(cerr, "Error: {}", e.what());
       } catch (...) {
@@ -2458,6 +2460,917 @@ void seek_to_mix_bar(int bar1,
   }
 }
 
+[[nodiscard]] string tui_format_time(chrono::duration<double> duration)
+{
+  const auto milliseconds = max<int64_t>(0,
+    chrono::duration_cast<chrono::milliseconds>(duration).count());
+  const auto minutes = milliseconds / 60'000;
+  const auto seconds = (milliseconds / 1'000) % 60;
+  const auto tenths = (milliseconds % 1'000) / 100;
+  return std::format("{:02}:{:02}.{}", minutes, seconds, tenths);
+}
+
+[[nodiscard]] string trim_copy(string_view value)
+{
+  auto first = ranges::find_if_not(value,
+    [](unsigned char c) { return std::isspace(c); });
+  auto last = ranges::find_if_not(value | views::reverse,
+    [](unsigned char c) { return std::isspace(c); }).base();
+  return first < last ? string(first, last) : string{};
+}
+
+void run_tui(track_database& database,
+             const path& trackdb_path,
+             vector<path>& mix_tracks,
+             optional<double>& forced_mix_bpm,
+             vector<double>& mix_track_offsets,
+             const Matcher& intro_matcher,
+             const Matcher& outro_matcher,
+             const std::function<void()>& rebuild_mix_into_player)
+{
+  using namespace ftxui;
+
+  enum class Page { Library, Track, Mix };
+  auto page_index = [](Page page) { return static_cast<int>(page); };
+
+  auto app = App::Fullscreen();
+  app.TrackMouse(false);
+
+  int current_page = page_index(Page::Library);
+  bool show_help = false;
+  bool show_leave_confirmation = false;
+  int page_after_confirmation = -2; // -1 quits, >= 0 switches page.
+  string notification = "Ready";
+
+  vector<string> sideways_gauge_charset = {" ", "▌", "█"};
+
+  // Library state.
+  string filter_text;
+  string import_path_text;
+  string random_text;
+  vector<path> library_paths;
+  vector<string> library_entries;
+  int selected_library_track = 0;
+
+  // Track editor state.
+  optional<track_info> edited_track;
+  shared_ptr<interleaved<float>> edited_audio;
+  bool edited_track_existed = false;
+  bool track_dirty = false;
+  string track_bpm;
+  string track_bpb;
+  string track_upbeat;
+  string track_offset;
+  string track_cues;
+  string track_tags;
+  string track_grid_window = "50";
+  string track_grid_method = "beats";
+
+  // Mix state.
+  vector<string> mix_entries;
+  int selected_mix_track = 0;
+  string mix_bpm_text = forced_mix_bpm
+    ? std::format("{:.4f}", *forced_mix_bpm) : "auto";
+  string mix_volume_text = std::format("{:.1f}", g_player.trackGainDB.load());
+
+  auto refresh_library = [&] {
+    library_paths.clear();
+    library_entries.clear();
+
+    Matcher matcher;
+    if (!filter_text.empty()) {
+      try {
+        matcher = Matcher::parse(filter_text);
+      } catch (const std::exception& e) {
+        notification = string("Invalid filter: ") + e.what();
+        return;
+      }
+    }
+
+    for (const auto& info : database.items | views::values) {
+      if (!matcher(info)) continue;
+      library_paths.push_back(info.filename);
+      string tags;
+      for (const auto& tag : info.tags) {
+        if (!tags.empty()) tags += ", ";
+        tags += tag;
+      }
+      library_entries.push_back(info.filename.filename().generic_string());
+    }
+    selected_library_track = clamp(selected_library_track, 0,
+      max(0, static_cast<int>(library_entries.size()) - 1));
+  };
+
+  auto refresh_mix = [&] {
+    mix_entries.clear();
+    for (auto [index, file] : views::enumerate(mix_tracks)) {
+      const auto* info = database.find(file);
+      const auto bpm = info ? info->bpm : 0.0;
+      unsigned mix_bar = 1;
+      if (index < static_cast<std::ptrdiff_t>(mix_track_offsets.size()) &&
+          g_player.track && !mix_tracks.empty()) {
+        const auto effective_bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+        const auto frames_per_beat =
+          static_cast<double>(g_player.track->sample_rate) * 60.0 / effective_bpm;
+        mix_bar = static_cast<unsigned>(max(0.0,
+          floor(mix_track_offsets[static_cast<size_t>(index)] /
+                frames_per_beat / max(1U, g_mix_bpb)))) + 1;
+      }
+      mix_entries.push_back(std::format("{}. {}   {:.2f} BPM   mix bar {}",
+        index + 1, file.filename().stem().generic_string(), bpm, mix_bar));
+    }
+    selected_mix_track = clamp(selected_mix_track, 0,
+      max(0, static_cast<int>(mix_entries.size()) - 1));
+  };
+
+  auto rebuild_mix = [&]() -> bool {
+    try {
+      rebuild_mix_into_player();
+      refresh_mix();
+      notification = std::format("Mix rebuilt with {} tracks", mix_tracks.size());
+      return true;
+    } catch (const std::exception& e) {
+      notification = string("Mix build failed: ") + e.what();
+      return false;
+    }
+  };
+
+  auto set_track_fields = [&] {
+    assert(edited_track);
+    track_bpm = std::format("{:.6g}", edited_track->bpm);
+    track_bpb = std::to_string(edited_track->beats_per_bar);
+    track_upbeat = std::format("{:.6g}", edited_track->upbeat_beats);
+    track_offset = std::format("{:.6g}", edited_track->time_offset.count());
+    track_cues.clear();
+    for (int cue : edited_track->cue_bars) {
+      if (!track_cues.empty()) track_cues += ", ";
+      track_cues += std::to_string(cue);
+    }
+    track_tags.clear();
+    for (const auto& tag : edited_track->tags) {
+      if (!track_tags.empty()) track_tags += ", ";
+      track_tags += tag;
+    }
+  };
+
+  auto parse_track_fields = [&]() -> expected<track_info, string> {
+    if (!edited_track) return unexpected("No track is open");
+    track_info value = *edited_track;
+
+    auto bpm = parse_number<double>(trim_copy(track_bpm));
+    if (!bpm || *bpm <= 0.0)
+      return unexpected("BPM must be a number greater than zero");
+    auto bpb = parse_number<unsigned>(trim_copy(track_bpb));
+    if (!bpb || *bpb == 0)
+      return unexpected("Beats/bar must be an integer greater than zero");
+    auto upbeat = parse_number<double>(trim_copy(track_upbeat));
+    if (!upbeat) return unexpected("Upbeat must be a number");
+    auto offset = parse_number<double>(trim_copy(track_offset));
+    if (!offset) return unexpected("Offset must be a number");
+
+    value.bpm = *bpm;
+    value.beats_per_bar = *bpb;
+    value.upbeat_beats = *upbeat;
+    value.time_offset = chrono::duration<double>(*offset);
+
+    value.cue_bars.clear();
+    string cue_token;
+    std::istringstream cue_stream(track_cues);
+    while (std::getline(cue_stream, cue_token, ',')) {
+      cue_token = trim_copy(cue_token);
+      if (cue_token.empty()) continue;
+      auto cue = parse_number<int>(cue_token);
+      if (!cue || *cue <= 0)
+        return unexpected("Cue bars must be positive comma-separated integers");
+      if (!ranges::contains(value.cue_bars, *cue)) value.cue_bars.push_back(*cue);
+    }
+    ranges::sort(value.cue_bars);
+
+    value.tags.clear();
+    string tag;
+    std::istringstream tag_stream(track_tags);
+    while (std::getline(tag_stream, tag, ',')) {
+      tag = trim_copy(tag);
+      if (!tag.empty()) value.tags.insert(std::move(tag));
+    }
+    return value;
+  };
+
+  auto apply_track_fields = [&]() -> bool {
+    auto parsed = parse_track_fields();
+    if (!parsed) {
+      notification = parsed.error();
+      return false;
+    }
+    edited_track = std::move(*parsed);
+    g_player.metro.bpm.store(edited_track->bpm);
+    g_player.metro.bpb.store(max(1U, edited_track->beats_per_bar));
+    g_player.upbeatBeats.store(edited_track->upbeat_beats);
+    g_player.timeOffsetSec.store(edited_track->time_offset.count());
+    notification = "Track fields applied to preview";
+    return true;
+  };
+
+  auto save_track = [&]() -> bool {
+    if (!apply_track_fields()) return false;
+    try {
+      database.upsert(*edited_track);
+      save(database, trackdb_path);
+      edited_track_existed = true;
+      track_dirty = false;
+      refresh_library();
+      notification = "Track metadata saved";
+      return true;
+    } catch (const std::exception& e) {
+      notification = string("Save failed: ") + e.what();
+      return false;
+    }
+  };
+
+  auto open_track = [&](const path& file) -> bool {
+    g_player.playing.store(false);
+    auto loaded = load_track(file);
+    if (!loaded) {
+      notification = loaded.error();
+      return false;
+    }
+    edited_audio = std::make_shared<interleaved<float>>(std::move(*loaded));
+    edited_track_existed = database.find(file) != nullptr;
+    if (edited_track_existed) {
+      edited_track = *database.find(file);
+    } else {
+      edited_track = track_info{};
+      edited_track->filename = file;
+      try {
+        const double detected = detect_bpm(*edited_audio);
+        if (detected > 0.0) edited_track->bpm = detected;
+      } catch (const std::exception& e) {
+        notification = string("BPM detection failed: ") + e.what();
+      }
+    }
+
+    g_player.track = edited_audio;
+    g_player.srcPos.store(0.0);
+    g_player.seekPending.store(false);
+    g_player.seekTargetFrames.store(0.0);
+    g_player.metro.reset_runtime();
+    g_player.metro.bpm.store(edited_track->bpm);
+    g_player.metro.bpb.store(max(1U, edited_track->beats_per_bar));
+    g_player.upbeatBeats.store(edited_track->upbeat_beats);
+    g_player.timeOffsetSec.store(edited_track->time_offset.count());
+    set_track_fields();
+    track_dirty = false;
+    current_page = page_index(Page::Track);
+    notification = "Opened " + file.filename().generic_string();
+    return true;
+  };
+
+  auto discard_track_changes = [&] {
+    g_player.playing.store(false);
+    if (edited_track && edited_track_existed) {
+      edited_track = *database.find(edited_track->filename);
+      set_track_fields();
+    } else {
+      edited_track.reset();
+      edited_audio.reset();
+    }
+    track_dirty = false;
+  };
+
+  auto run_autogrid = [&] {
+    if (!apply_track_fields() || !edited_track || !edited_audio) return;
+    if (edited_track->cue_bars.size() < 2) {
+      notification = "Autogrid needs at least two cue bars";
+      return;
+    }
+    auto window_ms = parse_number<int>(trim_copy(track_grid_window));
+    if (!window_ms || *window_ms <= 0) {
+      notification = "Autogrid window must be a positive number of milliseconds";
+      return;
+    }
+    string method_name = trim_copy(track_grid_method);
+    ranges::transform(method_name, method_name.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    TransientMethod method;
+    if (method_name == "beats") method = TransientMethod::Beats;
+    else if (method_name == "onsets") method = TransientMethod::Onsets;
+    else {
+      notification = "Autogrid method must be 'beats' or 'onsets'";
+      return;
+    }
+    try {
+      auto matches = match_beats(*edited_track, *edited_audio,
+        method, chrono::milliseconds(*window_ms));
+      if (matches.beat_indices.size() < 4) {
+        notification = "Too few matched beats for autogrid";
+        return;
+      }
+      auto fit = fit_grid(matches);
+      if (fit.n < 4 || fit.beat <= 0s || fit.R2 < 0.995) {
+        notification = std::format("Grid fit rejected (R² {:.6f})", fit.R2);
+        return;
+      }
+      auto correction = compute_bpm_offset_correction(*edited_track, fit);
+      const double relative = abs(correction.new_bpm - edited_track->bpm) /
+                              edited_track->bpm;
+      if (correction.new_bpm <= 0.0 || relative > 0.01) {
+        notification = "Autogrid correction exceeds the allowed ±1%";
+        return;
+      }
+      edited_track->bpm = correction.new_bpm;
+      edited_track->time_offset = correction.new_time_offset;
+      set_track_fields();
+      track_dirty = true;
+      apply_track_fields();
+      notification = std::format("Autogrid applied: {:.4f} BPM, R² {:.6f}",
+        edited_track->bpm, fit.R2);
+    } catch (const std::exception& e) {
+      notification = string("Autogrid failed: ") + e.what();
+    }
+  };
+
+  auto run_random = [&] {
+    if (database.items.empty()) {
+      notification = "Track database is empty";
+      return;
+    }
+    vector<Matcher> matchers;
+    if (trim_copy(random_text).empty()) {
+      matchers.emplace_back();
+    } else {
+      string expression;
+      std::istringstream expressions(random_text);
+      try {
+        while (std::getline(expressions, expression, ';')) {
+          expression = trim_copy(expression);
+          if (!expression.empty()) matchers.push_back(Matcher::parse(expression));
+        }
+      } catch (const std::exception& e) {
+        notification = string("Invalid random expression: ") + e.what();
+        return;
+      }
+    }
+
+    std::mt19937 rng(std::random_device{}());
+    vector<path> candidate;
+    for (const auto& matcher : matchers) {
+      auto group = match(database, matcher);
+      if (group.empty()) {
+        notification = "No cued tracks match a random expression";
+        return;
+      }
+      std::shuffle(group.begin(), group.end(), rng);
+      apply_intro_outro_constraints(database, intro_matcher, outro_matcher,
+                                      group, rng);
+      ranges::move(group, std::back_inserter(candidate));
+    }
+    mix_tracks = std::move(candidate);
+    rebuild_mix();
+  };
+
+  auto apply_mix_bpm = [&] {
+    if (mix_tracks.empty()) {
+      notification = "No tracks in mix";
+      return;
+    }
+    const string value = trim_copy(mix_bpm_text);
+    if (value == "auto") {
+      forced_mix_bpm.reset();
+    } else {
+      auto bpm = parse_number<double>(value);
+      if (!bpm || *bpm <= 0.0) {
+        notification = "Mix BPM must be 'auto' or a number greater than zero";
+        return;
+      }
+      forced_mix_bpm = *bpm;
+    }
+    rebuild_mix();
+  };
+
+  auto apply_mix_volume = [&] {
+    string value = trim_copy(mix_volume_text);
+    if (value.ends_with("dB") || value.ends_with("db")) value.resize(value.size() - 2);
+    auto volume = parse_number<float>(trim_copy(value));
+    if (!volume) {
+      notification = "Volume must be a number in dB";
+      return;
+    }
+    const float clamped = clamp(*volume, -60.F, 12.F);
+    g_player.trackGainDB.store(clamped);
+    mix_volume_text = std::format("{:.1f}", clamped);
+    notification = std::format("Volume set to {:.1f} dB", clamped);
+  };
+
+  auto seek_track_bar = [&](int delta) {
+    if (!edited_track || !edited_audio) return;
+    const double bpm = max(1.0, g_player.metro.bpm.load());
+    const unsigned bpb = max(1U, g_player.metro.bpb.load());
+    const double frames_per_bar = edited_audio->sample_rate * 60.0 / bpm * bpb;
+    const double current = g_player.srcPos.load();
+    const int current_bar = max(1, static_cast<int>(floor(current / frames_per_bar)) + 1);
+    const int target_bar = max(1, current_bar + delta);
+    const double frames_per_beat = frames_per_bar / bpb;
+    const double shift = edited_track->upbeat_beats * frames_per_beat +
+      edited_track->time_offset.count() * edited_audio->sample_rate;
+    double target = shift + (target_bar - 1) * frames_per_bar;
+    target = clamp(target, 0.0, max(0.0, static_cast<double>(edited_audio->frames()) - 1.0));
+    if (g_player.playing.load()) {
+      g_player.seekTargetFrames.store(target);
+      g_player.seekPending.store(true);
+    } else {
+      g_player.srcPos.store(target);
+      g_player.metro.prepare_after_seek(target - shift, frames_per_beat);
+    }
+  };
+
+  refresh_library();
+  refresh_mix();
+
+  auto library_menu = Menu(&library_entries, &selected_library_track);
+  auto filter_input = Input(&filter_text, "tag/BPM expression");
+  auto import_input = Input(&import_path_text, "audio file path");
+  auto random_input = Input(&random_text, "expr; expr (empty = all)");
+
+  // Recreate inputs with Enter/change observers.
+  InputOption filter_options;
+  filter_options.content = &filter_text;
+  filter_options.placeholder = "tag/BPM expression";
+  filter_options.multiline = false;
+  filter_options.on_change = refresh_library;
+  filter_input = Input(filter_options);
+
+  InputOption import_options;
+  import_options.content = &import_path_text;
+  import_options.placeholder = "audio file path";
+  import_options.multiline = false;
+  import_options.on_enter = [&] {
+    const auto filename = trim_copy(import_path_text);
+    if (!filename.empty()) open_track(filename);
+  };
+  import_input = Input(import_options);
+
+  InputOption random_options;
+  random_options.content = &random_text;
+  random_options.placeholder = "expr; expr (empty = all)";
+  random_options.multiline = false;
+  random_options.on_enter = run_random;
+  random_input = Input(random_options);
+
+  auto library_controls = Container::Vertical({
+    filter_input, import_input, random_input, library_menu,
+  });
+
+  auto library_page = Renderer(library_controls, [&] {
+    Element details = text("No track selected") | dim;
+    if (!library_paths.empty()) {
+      if (const auto* info = database.find(library_paths[selected_library_track])) {
+        string tags;
+        for (const auto& tag : info->tags) {
+          if (!tags.empty()) tags += ", ";
+          tags += tag;
+        }
+        string cues;
+        for (int cue : info->cue_bars) {
+          if (!cues.empty()) cues += ", ";
+          cues += std::to_string(cue);
+        }
+        details = vbox({
+          text(info->filename.generic_string()) | bold,
+          separator(),
+          text(std::format("BPM: {:.4f}", info->bpm)),
+          text(std::format("Beats/bar: {}", info->beats_per_bar)),
+          text(std::format("Upbeat: {:.3f} beats", info->upbeat_beats)),
+          text(std::format("Offset: {:.3f} s", info->time_offset.count())),
+          text("Cues: " + (cues.empty() ? string("(none)") : cues)),
+          text("Tags: " + (tags.empty() ? string("(none)") : tags)),
+        });
+      }
+    }
+    return vbox({
+      hbox({text(" Filter ") | bold, filter_input->Render() | flex,
+            text(std::format(" {} tracks ", library_entries.size())) | dim}),
+      hbox({text(" Import ") | bold, import_input->Render() | flex}),
+      hbox({text(" Random ") | bold, random_input->Render() | flex}),
+      separator(),
+      vbox({
+        window(text(" Library "), library_menu->Render() | vscroll_indicator | frame) | flex,
+        details
+      }) | flex,
+    });
+  });
+
+  auto mark_track_dirty = [&] { track_dirty = true; };
+  auto make_track_input = [&](string& value) {
+    InputOption option;
+    option.content = &value;
+    option.multiline = false;
+    option.on_change = mark_track_dirty;
+    option.on_enter = apply_track_fields;
+    return Input(option);
+  };
+  auto track_bpm_input = make_track_input(track_bpm);
+  auto track_bpb_input = make_track_input(track_bpb);
+  auto track_upbeat_input = make_track_input(track_upbeat);
+  auto track_offset_input = make_track_input(track_offset);
+  auto track_cues_input = make_track_input(track_cues);
+  auto track_tags_input = make_track_input(track_tags);
+  InputOption grid_window_options;
+  grid_window_options.content = &track_grid_window;
+  grid_window_options.multiline = false;
+  auto track_grid_window_input = Input(grid_window_options);
+  InputOption grid_method_options;
+  grid_method_options.content = &track_grid_method;
+  grid_method_options.multiline = false;
+  auto track_grid_method_input = Input(grid_method_options);
+  auto track_save_button = Button("Save", save_track);
+  auto track_grid_button = Button("Autogrid", run_autogrid);
+  auto track_play_button = Button("Play / stop", [&] {
+    if (edited_audio) g_player.playing.store(!g_player.playing.load());
+  });
+  auto track_buttons = Container::Horizontal({
+    track_save_button, track_grid_button, track_play_button,
+  });
+  auto track_controls = Container::Vertical({
+    track_bpm_input, track_bpb_input, track_upbeat_input, track_offset_input,
+    track_cues_input, track_tags_input, track_grid_window_input,
+    track_grid_method_input, track_buttons,
+  });
+
+  auto field_row = [](string label, const Component& input) {
+    return hbox({text(std::move(label)) | dim | size(WIDTH, EQUAL, 14),
+                 input->Render() | flex});
+  };
+  auto track_page = Renderer(track_controls, [&] {
+    if (!edited_track || !edited_audio) {
+      return window(text(" Track editor "),
+                    text("Open a track from the Library page") | center);
+    }
+    const auto position = chrono::duration<double>(
+      g_player.srcPos.load() / edited_audio->sample_rate);
+    const auto duration = edited_audio->duration();
+    const float progress = duration.count() > 0.0
+      ? static_cast<float>(clamp(position.count() / duration.count(), 0.0, 1.0))
+      : 0.F;
+    return vbox({
+      hbox({text(" " + edited_track->filename.generic_string()) | bold,
+            filler(),
+            text(track_dirty ? " modified " : " saved ") |
+              color(track_dirty ? Color::YellowLight : Color::GreenLight)}),
+      hbox({
+        window(text(" Grid and metadata "), vbox({
+          field_row("BPM", track_bpm_input),
+          field_row("Beats/bar", track_bpb_input),
+          field_row("Upbeat", track_upbeat_input),
+          field_row("Offset (s)", track_offset_input),
+          field_row("Cue bars", track_cues_input),
+          field_row("Tags", track_tags_input),
+          field_row("Grid window ms", track_grid_window_input),
+          field_row("Grid method", track_grid_method_input),
+          separator(), track_buttons->Render(),
+        })) | flex,
+        window(text(" Preview "), vbox({
+          text(g_player.playing.load() ? "▶ PLAYING" : "■ STOPPED") |
+            color(g_player.playing.load() ? Color::GreenLight : Color::RedLight),
+          gaugeCharset(progress, sideways_gauge_charset) | color(Color::Cyan),
+          text(tui_format_time(position) + " / " + tui_format_time(duration)),
+          separator(),
+          text("Enter applies the focused field") | dim,
+          text("Autogrid supports beats or onsets") | dim,
+        })) | size(WIDTH, EQUAL, 42),
+      }) | flex,
+    });
+  });
+
+  auto mix_menu = Menu(&mix_entries, &selected_mix_track);
+  InputOption mix_bpm_options;
+  mix_bpm_options.content = &mix_bpm_text;
+  mix_bpm_options.placeholder = "auto or BPM";
+  mix_bpm_options.multiline = false;
+  mix_bpm_options.on_enter = apply_mix_bpm;
+  auto mix_bpm_input = Input(mix_bpm_options);
+  InputOption volume_options;
+  volume_options.content = &mix_volume_text;
+  volume_options.placeholder = "dB";
+  volume_options.multiline = false;
+  volume_options.on_enter = apply_mix_volume;
+  auto mix_volume_input = Input(volume_options);
+  auto mix_controls = Container::Vertical({mix_bpm_input, mix_volume_input, mix_menu});
+
+  auto mix_page = Renderer(mix_controls, [&] {
+    chrono::duration<double> position{0};
+    chrono::duration<double> duration{0};
+    if (g_player.track) {
+      position = chrono::duration<double>(
+        g_player.srcPos.load() / g_player.track->sample_rate);
+      duration = g_player.track->duration();
+    }
+    const float progress = duration.count() > 0.0
+      ? static_cast<float>(clamp(position.count() / duration.count(), 0.0, 1.0))
+      : 0.F;
+    Elements cue_lines;
+    for (const auto& cue : g_mix_cues) {
+      cue_lines.push_back(text(std::format("bar {:>4}  {} (track bar {})",
+        cue.bar, cue.track.filename().stem().generic_string(), cue.local_bar)));
+    }
+    if (cue_lines.empty()) cue_lines.push_back(text("(no cues)") | dim);
+    return vbox({
+      hbox({text(" Mix BPM ") | bold, mix_bpm_input->Render() | size(WIDTH, EQUAL, 14),
+            text(" Volume dB ") | bold, mix_volume_input->Render() | size(WIDTH, EQUAL, 10),
+            filler(),
+            text(g_player.playing.load() ? " PLAYING " : " STOPPED ") | bold |
+              color(g_player.playing.load() ? Color::GreenLight : Color::RedLight)}),
+      separator(),
+      hbox({
+        window(text(" Track order "), mix_menu->Render() | vscroll_indicator | frame) | flex,
+        window(text(" Mix cues "), vbox(std::move(cue_lines)) | frame) |
+          size(WIDTH, EQUAL, 44),
+      }) | flex,
+      window(text(" Timeline "), vbox({
+        gaugeCharset(progress, sideways_gauge_charset) | color(Color::GreenLight),
+        hbox({text(tui_format_time(position)), text(" / "),
+              text(tui_format_time(duration)) | dim, filler(),
+              text(std::format("{} tracks, {} BPB", mix_tracks.size(), g_mix_bpb)) | dim}),
+      })),
+    });
+  });
+
+  auto pages = Container::Tab({library_page, track_page, mix_page}, &current_page);
+
+  auto tab_label = [](string label, bool selected) {
+    auto result = text((selected?"[":" ") + label + (selected?"]":" "));
+    return selected
+      ? result | bold | color(Color::Black) | bgcolor(Color::Cyan)
+      : result | color(Color::GrayLight);
+  };
+  auto key_hint = [](string key, string description) {
+    return hbox({
+      text(" " + key + " ") | bold | color(Color::Black) | bgcolor(Color::GrayLight),
+      text(" " + description + "  ") | dim,
+    });
+  };
+
+  auto main_renderer = Renderer(pages, [&] {
+    auto header = hbox({
+      text(" clmix ") | bold | color(Color::Black) | bgcolor(Color::GreenLight),
+      text("  "), tab_label("1 Library", current_page == 0), text(" "),
+      tab_label("2 Track", current_page == 1), text(" "),
+      tab_label("3 Mix", current_page == 2), filler(),
+    });
+    Elements hints;
+    if (current_page == page_index(Page::Library)) {
+      hints = {key_hint("Enter", "open/apply"), key_hint("a", "add"),
+               key_hint("/", "filter"), key_hint("n", "import"),
+               key_hint("r", "random")};
+    } else if (current_page == page_index(Page::Track)) {
+      hints = {key_hint("Tab", "field"), key_hint("Enter", "apply"),
+               key_hint("Space", "play"), key_hint("←/→", "seek bar"),
+               key_hint("Ctrl-S", "save")};
+    } else {
+      hints = {key_hint("Space", "play"), key_hint("←/→", "seek bar"),
+               key_hint("J/K", "reorder"), key_hint("d", "remove"),
+               key_hint("Enter", "seek track")};
+    }
+    hints.push_back(filler());
+    hints.push_back(key_hint("?", "help"));
+    hints.push_back(key_hint("q", "quit"));
+
+    auto content = vbox({
+      header | size(HEIGHT, EQUAL, 1), separator(), pages->Render() | flex,
+      separator(), hbox(std::move(hints)),
+      hbox({text(" " + notification) | dim, filler(), text("ready ") | color(Color::GreenLight)}),
+    });
+    if (show_help) {
+      auto help = window(text(" Help "), vbox({
+        text("1 / 2 / 3       Switch screen"),
+        text("Tab             Move focus (or switch screen outside fields)"),
+        text("Escape          Leave an input / close help"),
+        text("Space           Play or stop"),
+        text("Left / Right    Seek one bar"),
+        text("Library: a add, n import, r random, / filter"),
+        text("Mix: J/K reorder, d remove, Enter seek to track"),
+        text("Track: edit inline, Enter apply, Ctrl-S save"),
+        text("q / Ctrl-C      Quit"),
+        separator(),
+        text("Export remains available via --export or the REPL.") | dim,
+      })) | size(WIDTH, EQUAL, 70);
+      return dbox({content | dim, help | clear_under | center});
+    }
+    if (show_leave_confirmation) {
+      auto confirm = window(text(" Unsaved track "), vbox({
+        text("Save changes before leaving?") | bold,
+        separator(),
+        text("s  Save and continue"),
+        text("d  Discard and continue"),
+        text("c / Escape  Cancel"),
+      })) | size(WIDTH, EQUAL, 42);
+      return dbox({content | dim, confirm | clear_under | center});
+    }
+    return content;
+  });
+
+  auto activate_destination = [&](int destination) {
+    g_player.playing.store(false);
+    if (destination == -1) {
+      app.Exit();
+      return;
+    }
+    if (destination == page_index(Page::Mix)) {
+      if (!mix_tracks.empty()) rebuild_mix();
+    } else if (destination == page_index(Page::Track) && edited_track && edited_audio) {
+      g_player.track = edited_audio;
+      g_player.srcPos.store(0.0);
+      g_player.seekPending.store(false);
+      g_player.metro.reset_runtime();
+      apply_track_fields();
+    }
+    current_page = destination;
+  };
+
+  auto leave_track_for = [&](int destination) {
+    if (destination == current_page) return;
+    if (current_page == page_index(Page::Track) && track_dirty) {
+      page_after_confirmation = destination;
+      show_leave_confirmation = true;
+      return;
+    }
+    activate_destination(destination);
+  };
+
+  auto any_text_input_focused = [&] {
+    return filter_input->Focused() || import_input->Focused() || random_input->Focused() ||
+      track_bpm_input->Focused() || track_bpb_input->Focused() ||
+      track_upbeat_input->Focused() || track_offset_input->Focused() ||
+      track_cues_input->Focused() || track_tags_input->Focused() ||
+      track_grid_window_input->Focused() || track_grid_method_input->Focused() ||
+      mix_bpm_input->Focused() || mix_volume_input->Focused();
+  };
+
+  auto root = CatchEvent(main_renderer, [&](Event event) {
+    if (show_leave_confirmation) {
+      if (event == Event::s) {
+        if (!save_track()) return true;
+        show_leave_confirmation = false;
+        activate_destination(page_after_confirmation);
+        return true;
+      }
+      if (event == Event::d) {
+        discard_track_changes();
+        show_leave_confirmation = false;
+        activate_destination(page_after_confirmation);
+        return true;
+      }
+      if (event == Event::c || event == Event::Escape) {
+        show_leave_confirmation = false;
+        return true;
+      }
+      return true;
+    }
+
+    if (show_help) {
+      if (event == Event::Escape || event == Event::Character("?") || event == Event::q) {
+        show_help = false;
+      }
+      return true;
+    }
+
+    if (event == Event::CtrlC) {
+      leave_track_for(-1);
+      return true;
+    }
+    if (event == Event::Escape && any_text_input_focused()) {
+      if (current_page == page_index(Page::Library)) library_menu->TakeFocus();
+      else if (current_page == page_index(Page::Track)) track_buttons->TakeFocus();
+      else mix_menu->TakeFocus();
+      return true;
+    }
+
+    const bool typing = any_text_input_focused();
+    if (!typing && event == Event::q) {
+      leave_track_for(-1);
+      return true;
+    }
+    if (!typing && event == Event::Character("?")) {
+      show_help = true;
+      return true;
+    }
+    if (event == Event::F1) {
+      leave_track_for(page_index(Page::Library));
+      return true;
+    }
+    if (event == Event::F2) {
+      if (edited_track) leave_track_for(page_index(Page::Track));
+      else notification = "Open a library track first";
+      return true;
+    }
+    if (event == Event::F3) {
+      leave_track_for(page_index(Page::Mix));
+      return true;
+    }
+
+    if (!typing && event == Event::Character(" ") &&
+        current_page != page_index(Page::Library)) {
+      if (g_player.track) g_player.playing.store(!g_player.playing.load());
+      else notification = "Nothing is loaded for playback";
+      return true;
+    }
+
+    if (!typing && event == Event::ArrowLeft) {
+      if (current_page == page_index(Page::Track)) seek_track_bar(-1);
+      else if (current_page == page_index(Page::Mix) && !mix_tracks.empty() && g_player.track) {
+        const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+        const double frames_per_bar = g_player.track->sample_rate * 60.0 / bpm * g_mix_bpb;
+        const int bar = max(1, static_cast<int>(floor(g_player.srcPos.load() / frames_per_bar)));
+        seek_to_mix_bar(bar, database, mix_tracks, forced_mix_bpm);
+      }
+      return true;
+    }
+    if (!typing && event == Event::ArrowRight) {
+      if (current_page == page_index(Page::Track)) seek_track_bar(1);
+      else if (current_page == page_index(Page::Mix) && !mix_tracks.empty() && g_player.track) {
+        const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+        const double frames_per_bar = g_player.track->sample_rate * 60.0 / bpm * g_mix_bpb;
+        const int bar = static_cast<int>(floor(g_player.srcPos.load() / frames_per_bar)) + 2;
+        seek_to_mix_bar(bar, database, mix_tracks, forced_mix_bpm);
+      }
+      return true;
+    }
+
+    if (current_page == page_index(Page::Library) && !typing) {
+      if (event == Event::Character("/")) { filter_input->TakeFocus(); return true; }
+      if (event == Event::n) { import_input->TakeFocus(); return true; }
+      if (event == Event::r) { random_input->TakeFocus(); return true; }
+      if (event == Event::a && !library_paths.empty()) {
+        const path selected = library_paths[selected_library_track];
+        if (!ranges::contains(mix_tracks, selected)) mix_tracks.push_back(selected);
+        rebuild_mix();
+        return true;
+      }
+      if (event == Event::Return && library_menu->Focused() && !library_paths.empty()) {
+        open_track(library_paths[selected_library_track]);
+        return true;
+      }
+    }
+
+    if (current_page == page_index(Page::Track) && event == Event::Special({19})) {
+      save_track(); // Ctrl-S
+      return true;
+    }
+
+    if (current_page == page_index(Page::Mix) && !typing) {
+      if (event == Event::J && selected_mix_track + 1 < static_cast<int>(mix_tracks.size())) {
+        std::swap(mix_tracks[selected_mix_track], mix_tracks[selected_mix_track + 1]);
+        ++selected_mix_track;
+        rebuild_mix();
+        return true;
+      }
+      if (event == Event::K && selected_mix_track > 0) {
+        std::swap(mix_tracks[selected_mix_track], mix_tracks[selected_mix_track - 1]);
+        --selected_mix_track;
+        rebuild_mix();
+        return true;
+      }
+      if (event == Event::d && !mix_tracks.empty()) {
+        mix_tracks.erase(mix_tracks.begin() + selected_mix_track);
+        if (mix_tracks.empty()) {
+          g_player.playing.store(false);
+          g_player.track.reset();
+          g_mix_cues.clear();
+          mix_track_offsets.clear();
+          refresh_mix();
+          notification = "Mix is empty";
+        } else {
+          rebuild_mix();
+        }
+        return true;
+      }
+      if (event == Event::Return && mix_menu->Focused() &&
+          selected_mix_track < static_cast<int>(mix_track_offsets.size()) &&
+          g_player.track) {
+        const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+        const double frames_per_beat = g_player.track->sample_rate * 60.0 / bpm;
+        const int bar = max(1, static_cast<int>(floor(
+          mix_track_offsets[selected_mix_track] / frames_per_beat / g_mix_bpb)) + 1);
+        seek_to_mix_bar(bar, database, mix_tracks, forced_mix_bpm);
+        return true;
+      }
+    }
+
+    if (event == Event::Custom) return true;
+    return false;
+  });
+
+  std::jthread ticker([&](std::stop_token stop_token) {
+    while (!stop_token.stop_requested()) {
+      std::this_thread::sleep_for(100ms);
+      app.PostEvent(Event::Custom);
+    }
+  });
+
+  library_menu->TakeFocus();
+  app.Loop(root);
+  g_player.playing.store(false);
+}
+
 }
 
 int main(int argc, char** argv)
@@ -2469,7 +3382,8 @@ int main(int argc, char** argv)
             "  --bpm <value>     Force mix BPM\n"
             "  --export <file>   Render mix to 24-bit WAV and exit\n"
             "  --intro <expr>    Matcher expression for intro tracks (default: tag 'intro')\n"
-            "  --outro <expr>    Matcher expression for outro tracks (default: tag 'outro')\n";
+            "  --outro <expr>    Matcher expression for outro tracks (default: tag 'outro')\n"
+            "  --tui             Use the FTXUI interface instead of the REPL\n";
     return EXIT_FAILURE;
   }
 
@@ -2485,6 +3399,7 @@ int main(int argc, char** argv)
   vector<Matcher>       opt_random_exprs;
   optional<double> forced_mix_bpm;
   optional<path>   opt_export_path;
+  bool             opt_tui = false;
 
   // Prepare getopt_long
   int opt;
@@ -2495,6 +3410,7 @@ int main(int argc, char** argv)
     {"export", required_argument, nullptr, 'e'},
     {"intro",  required_argument, nullptr, 'i'},
     {"outro",  required_argument, nullptr, 'o'},
+    {"tui",    no_argument,       nullptr, 't'},
     {nullptr,  0,                 nullptr,  0 }
   };
 
@@ -2545,6 +3461,9 @@ int main(int argc, char** argv)
         }
         break;
       }
+      case 't':
+        opt_tui = true;
+        break;
       default:
         return EXIT_FAILURE;
     }
@@ -2653,6 +3572,13 @@ int main(int argc, char** argv)
       }
     } else if (forced_mix_bpm) {
       println(cerr, "Warning: --bpm specified but no tracks in mix.");
+    }
+
+    if (opt_tui) {
+      run_tui(database, trackdb_path, mix_tracks, forced_mix_bpm,
+              mix_track_offsets, intro_matcher, outro_matcher,
+              rebuild_mix_into_player);
+      return EXIT_SUCCESS;
     }
 
     // Set up readline completion for track-info filenames (with quoting)

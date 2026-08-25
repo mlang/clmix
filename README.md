@@ -124,6 +124,15 @@ clmix>
 
 Type `help` to see commands.
 
+To use the FTXUI interface instead, pass `--tui` after the database path:
+
+```bash
+./clmix trackdb.json --tui
+```
+
+The TUI provides Library, Track, and Mix screens. Press `?` for its keyboard
+reference. Export remains available through `--export` or the REPL.
+
 Typical workflow:
 
 1. Add tracks and annotate them via `track-info`.
