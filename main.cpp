@@ -2550,12 +2550,7 @@ void run_tui(track_database& database,
     for (const auto& info : database.items | views::values) {
       if (!matcher(info)) continue;
       library_paths.push_back(info.filename);
-      string tags;
-      for (const auto& tag : info.tags) {
-        if (!tags.empty()) tags += ", ";
-        tags += tag;
-      }
-      library_entries.push_back(info.filename.filename().generic_string());
+      library_entries.push_back(info.filename.stem().generic_string());
     }
     selected_library_track = clamp(selected_library_track, 0,
       max(0, static_cast<int>(library_entries.size()) - 1));
@@ -2887,17 +2882,14 @@ void run_tui(track_database& database,
   refresh_mix();
 
   auto library_menu = Menu(&library_entries, &selected_library_track);
-  auto filter_input = Input(&filter_text, "tag/BPM expression");
-  auto import_input = Input(&import_path_text, "audio file path");
-  auto random_input = Input(&random_text, "expr; expr (empty = all)");
 
-  // Recreate inputs with Enter/change observers.
   InputOption filter_options;
   filter_options.content = &filter_text;
   filter_options.placeholder = "tag/BPM expression";
   filter_options.multiline = false;
   filter_options.on_change = refresh_library;
-  filter_input = Input(filter_options);
+  filter_options.on_enter = [&] { library_menu->TakeFocus(); };
+  auto filter_input = Input(filter_options);
 
   InputOption import_options;
   import_options.content = &import_path_text;
@@ -2907,14 +2899,14 @@ void run_tui(track_database& database,
     const auto filename = trim_copy(import_path_text);
     if (!filename.empty()) open_track(filename);
   };
-  import_input = Input(import_options);
+  auto import_input = Input(import_options);
 
   InputOption random_options;
   random_options.content = &random_text;
   random_options.placeholder = "expr; expr (empty = all)";
   random_options.multiline = false;
   random_options.on_enter = run_random;
-  random_input = Input(random_options);
+  auto random_input = Input(random_options);
 
   auto library_controls = Container::Vertical({
     filter_input, import_input, random_input, library_menu,
@@ -3112,9 +3104,10 @@ void run_tui(track_database& database,
   auto main_renderer = Renderer(pages, [&] {
     auto header = hbox({
       text(" clmix ") | bold | color(Color::Black) | bgcolor(Color::GreenLight),
-      text("  "), tab_label("1 Library", current_page == 0), text(" "),
-      tab_label("2 Track", current_page == 1), text(" "),
-      tab_label("3 Mix", current_page == 2), filler(),
+      text("  "),
+      tab_label("F1 Library", current_page == 0), text(" "),
+      tab_label("F2 Track", current_page == 1), text(" "),
+      tab_label("F3 Mix", current_page == 2), filler(),
     });
     Elements hints;
     if (current_page == page_index(Page::Library)) {
