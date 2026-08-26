@@ -2570,8 +2570,9 @@ void run_tui(track_database& database,
   // Mix state.
   vector<string> mix_entries;
   int selected_mix_track = 0;
+  bool mix_bpm_override = forced_mix_bpm.has_value();
   string mix_bpm_text = forced_mix_bpm
-    ? std::format("{:.4f}", *forced_mix_bpm) : "auto";
+    ? std::format("{:.4f}", *forced_mix_bpm) : "";
   string mix_volume_text = std::format("{:.1f}", g_player.trackGainDB.load());
 
   auto refresh_library = [&] {
@@ -2617,6 +2618,11 @@ void run_tui(track_database& database,
     }
     selected_mix_track = clamp(selected_mix_track, 0,
       max(0, static_cast<int>(mix_entries.size()) - 1));
+    if (!mix_bpm_override) {
+      mix_bpm_text = mix_tracks.empty()
+        ? ""
+        : std::format("{:.4f}", mix_bpm(database, mix_tracks, nullopt));
+    }
   };
 
   auto rebuild_mix = [&]() -> bool {
@@ -2870,16 +2876,13 @@ void run_tui(track_database& database,
       return;
     }
     const string value = trim_copy(mix_bpm_text);
-    if (value == "auto") {
-      forced_mix_bpm.reset();
-    } else {
-      auto bpm = parse_number<double>(value);
-      if (!bpm || *bpm <= 0.0) {
-        notification = "Mix BPM must be 'auto' or a number greater than zero";
-        return;
-      }
-      forced_mix_bpm = *bpm;
+    auto bpm = parse_number<double>(value);
+    if (!bpm || *bpm <= 0.0) {
+      notification = "Mix BPM must be a number greater than zero";
+      return;
     }
+    forced_mix_bpm = *bpm;
+    mix_bpm_text = std::format("{:.4f}", *bpm);
     rebuild_mix();
   };
 
@@ -3077,17 +3080,49 @@ void run_tui(track_database& database,
   auto mix_menu = Menu(&mix_entries, &selected_mix_track);
   InputOption mix_bpm_options;
   mix_bpm_options.content = &mix_bpm_text;
-  mix_bpm_options.placeholder = "auto or BPM";
+  mix_bpm_options.placeholder = "BPM";
   mix_bpm_options.multiline = false;
-  mix_bpm_options.on_enter = apply_mix_bpm;
+  mix_bpm_options.on_enter = [&] {
+    apply_mix_bpm();
+    mix_menu->TakeFocus();
+  };
   auto mix_bpm_input = Input(mix_bpm_options);
+  CheckboxOption mix_bpm_override_options;
+  mix_bpm_override_options.label = "Override";
+  mix_bpm_override_options.checked = &mix_bpm_override;
+  mix_bpm_override_options.on_change = [&] {
+    if (mix_bpm_override) {
+      if (mix_tracks.empty()) {
+        mix_bpm_override = false;
+        notification = "Add tracks before overriding the mix BPM";
+        return;
+      }
+      const double bpm = mix_bpm(database, mix_tracks, forced_mix_bpm);
+      forced_mix_bpm = bpm;
+      mix_bpm_text = std::format("{:.4f}", bpm);
+      mix_bpm_input->TakeFocus();
+      notification = "Mix BPM override enabled; edit the value and press Enter";
+      return;
+    }
+    forced_mix_bpm.reset();
+    if (mix_tracks.empty()) {
+      mix_bpm_text.clear();
+      notification = "Mix BPM set to automatic";
+    } else {
+      rebuild_mix();
+    }
+  };
+  auto mix_bpm_override_checkbox = Checkbox(mix_bpm_override_options);
+  auto editable_mix_bpm_input = Maybe(mix_bpm_input, &mix_bpm_override);
   InputOption volume_options;
   volume_options.content = &mix_volume_text;
   volume_options.placeholder = "dB";
   volume_options.multiline = false;
   volume_options.on_enter = apply_mix_volume;
   auto mix_volume_input = Input(volume_options);
-  auto mix_controls = Container::Vertical({mix_bpm_input, mix_volume_input, mix_menu});
+  auto mix_controls = Container::Vertical({
+    mix_bpm_override_checkbox, editable_mix_bpm_input, mix_volume_input, mix_menu,
+  });
 
   auto mix_page = Renderer(mix_controls, [&] {
     chrono::duration<double> position{0};
@@ -3106,8 +3141,12 @@ void run_tui(track_database& database,
         cue.bar, cue.track.filename().stem().generic_string(), cue.local_bar)));
     }
     if (cue_lines.empty()) cue_lines.push_back(text("(no cues)") | dim);
+    Element mix_bpm_field = mix_bpm_override
+      ? mix_bpm_input->Render()
+      : (mix_bpm_text.empty() ? text("(no mix)") : text(mix_bpm_text)) | dim;
     return vbox({
-      hbox({text(" Mix BPM ") | bold, mix_bpm_input->Render() | size(WIDTH, EQUAL, 14),
+      hbox({text(" Mix BPM ") | bold, mix_bpm_field | size(WIDTH, EQUAL, 14),
+            text(" "), mix_bpm_override_checkbox->Render(),
             text(" Volume dB ") | bold, mix_volume_input->Render() | size(WIDTH, EQUAL, 10),
             filler(),
             text(g_player.playing.load() ? " PLAYING " : " STOPPED ") | bold |
@@ -3181,7 +3220,7 @@ void run_tui(track_database& database,
         text("Space           Play or stop"),
         text("Left / Right    Seek one bar"),
         text("Library: a add, n import, r random, / filter"),
-        text("Mix: J/K reorder, d remove, Enter seek to track"),
+        text("Mix: Override enables BPM editing; J/K reorder, d remove"),
         text("Track: edit inline, Enter apply, Ctrl-S save"),
         text("q / Ctrl-C      Quit"),
         separator(),
@@ -3302,6 +3341,7 @@ void run_tui(track_database& database,
     }
 
     if (!typing && event == Event::Character(" ") &&
+        !mix_bpm_override_checkbox->Focused() &&
         current_page != page_index(Page::Library)) {
       if (g_player.track) g_player.playing.store(!g_player.playing.load());
       else notification = "Nothing is loaded for playback";
@@ -3345,8 +3385,8 @@ void run_tui(track_database& database,
       }
     }
 
-    if (current_page == page_index(Page::Track) && event == Event::Special({19})) {
-      save_track(); // Ctrl-S
+    if (current_page == page_index(Page::Track) && event == Event::CtrlS) {
+      save_track();
       return true;
     }
 
