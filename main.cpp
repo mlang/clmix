@@ -2573,7 +2573,6 @@ void run_tui(track_database& database,
   bool mix_bpm_override = forced_mix_bpm.has_value();
   string mix_bpm_text = forced_mix_bpm
     ? std::format("{:.4f}", *forced_mix_bpm) : "";
-  string mix_volume_text = std::format("{:.1f}", g_player.trackGainDB.load());
 
   auto refresh_library = [&] {
     library_paths.clear();
@@ -2886,18 +2885,11 @@ void run_tui(track_database& database,
     rebuild_mix();
   };
 
-  auto apply_mix_volume = [&] {
-    string value = trim_copy(mix_volume_text);
-    if (value.ends_with("dB") || value.ends_with("db")) value.resize(value.size() - 2);
-    auto volume = parse_number<float>(trim_copy(value));
-    if (!volume) {
-      notification = "Volume must be a number in dB";
-      return;
-    }
-    const float clamped = clamp(*volume, -60.F, 12.F);
-    g_player.trackGainDB.store(clamped);
-    mix_volume_text = std::format("{:.1f}", clamped);
-    notification = std::format("Volume set to {:.1f} dB", clamped);
+  auto adjust_mix_volume = [&](float delta_db) {
+    const float volume = clamp(g_player.trackGainDB.load() + delta_db,
+                               -60.F, 12.F);
+    g_player.trackGainDB.store(volume);
+    notification = std::format("Volume set to {:.1f} dB", volume);
   };
 
   auto seek_track_bar = [&](int delta) {
@@ -3114,14 +3106,8 @@ void run_tui(track_database& database,
   };
   auto mix_bpm_override_checkbox = Checkbox(mix_bpm_override_options);
   auto editable_mix_bpm_input = Maybe(mix_bpm_input, &mix_bpm_override);
-  InputOption volume_options;
-  volume_options.content = &mix_volume_text;
-  volume_options.placeholder = "dB";
-  volume_options.multiline = false;
-  volume_options.on_enter = apply_mix_volume;
-  auto mix_volume_input = Input(volume_options);
   auto mix_controls = Container::Vertical({
-    mix_bpm_override_checkbox, editable_mix_bpm_input, mix_volume_input, mix_menu,
+    editable_mix_bpm_input, mix_bpm_override_checkbox, mix_menu,
   });
 
   auto mix_page = Renderer(mix_controls, [&] {
@@ -3147,7 +3133,8 @@ void run_tui(track_database& database,
     return vbox({
       hbox({text(" Mix BPM ") | bold, mix_bpm_field | size(WIDTH, EQUAL, 14),
             text(" "), mix_bpm_override_checkbox->Render(),
-            text(" Volume dB ") | bold, mix_volume_input->Render() | size(WIDTH, EQUAL, 10),
+            text(std::format(" Volume {:.1f} dB ",
+                             g_player.trackGainDB.load())) | bold,
             filler(),
             text(g_player.playing.load() ? " PLAYING " : " STOPPED ") | bold |
               color(g_player.playing.load() ? Color::GreenLight : Color::RedLight)}),
@@ -3200,6 +3187,7 @@ void run_tui(track_database& database,
                key_hint("Ctrl-S", "save")};
     } else {
       hints = {key_hint("Space", "play"), key_hint("←/→", "seek bar"),
+               key_hint("+/-", "volume"),
                key_hint("J/K", "reorder"), key_hint("d", "remove"),
                key_hint("Enter", "seek track")};
     }
@@ -3220,7 +3208,7 @@ void run_tui(track_database& database,
         text("Space           Play or stop"),
         text("Left / Right    Seek one bar"),
         text("Library: a add, n import, r random, / filter"),
-        text("Mix: Override enables BPM editing; J/K reorder, d remove"),
+        text("Mix: +/- volume; Override enables BPM editing; J/K reorder, d remove"),
         text("Track: edit inline, Enter apply, Ctrl-S save"),
         text("q / Ctrl-C      Quit"),
         separator(),
@@ -3275,7 +3263,7 @@ void run_tui(track_database& database,
       track_upbeat_input->Focused() || track_offset_input->Focused() ||
       track_cues_input->Focused() || track_tags_input->Focused() ||
       track_grid_window_input->Focused() || track_grid_method_input->Focused() ||
-      mix_bpm_input->Focused() || mix_volume_input->Focused();
+      mix_bpm_input->Focused();
   };
 
   auto root = CatchEvent(main_renderer, [&](Event event) {
@@ -3391,6 +3379,14 @@ void run_tui(track_database& database,
     }
 
     if (current_page == page_index(Page::Mix) && !typing) {
+      if (event == Event::Character("+")) {
+        adjust_mix_volume(1.F);
+        return true;
+      }
+      if (event == Event::Character("-")) {
+        adjust_mix_volume(-1.F);
+        return true;
+      }
       if (event == Event::J && selected_mix_track + 1 < static_cast<int>(mix_tracks.size())) {
         std::swap(mix_tracks[selected_mix_track], mix_tracks[selected_mix_track + 1]);
         ++selected_mix_track;
