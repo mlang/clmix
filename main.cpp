@@ -3131,8 +3131,9 @@ void run_tui(track_database& database,
       ? mix_bpm_input->Render()
       : (mix_bpm_text.empty() ? text("(no mix)") : text(mix_bpm_text)) | dim;
     return vbox({
-      hbox({text(" Mix BPM ") | bold, mix_bpm_field | size(WIDTH, EQUAL, 14),
+      hbox({text(" Mix BPM ") | bold, mix_bpm_field,
             text(" "), mix_bpm_override_checkbox->Render(),
+	    filler(),
             text(std::format(" Volume {:.1f} dB ",
                              g_player.trackGainDB.load())) | bold,
             filler(),
@@ -3178,7 +3179,7 @@ void run_tui(track_database& database,
     });
     Elements hints;
     if (current_page == page_index(Page::Library)) {
-      hints = {key_hint("Enter", "open/apply"), key_hint("a", "add"),
+      hints = {key_hint("F2", "edit selected"), key_hint("a", "add"),
                key_hint("/", "filter"), key_hint("n", "import"),
                key_hint("r", "random")};
     } else if (current_page == page_index(Page::Track)) {
@@ -3186,7 +3187,8 @@ void run_tui(track_database& database,
                key_hint("Space", "play"), key_hint("←/→", "seek bar"),
                key_hint("Ctrl-S", "save")};
     } else {
-      hints = {key_hint("Space", "play"), key_hint("←/→", "seek bar"),
+      hints = {key_hint("F2", "edit selected"), key_hint("Space", "play"),
+               key_hint("←/→", "seek bar"),
                key_hint("+/-", "volume"),
                key_hint("J/K", "reorder"), key_hint("d", "remove"),
                key_hint("Enter", "seek track")};
@@ -3202,7 +3204,8 @@ void run_tui(track_database& database,
     });
     if (show_help) {
       auto help = window(text(" Help "), vbox({
-        text("1 / 2 / 3       Switch screen"),
+        text("F1 / F3         Open Library / Mix"),
+        text("F2              Edit the track selected on Library or Mix"),
         text("Tab             Move focus (or switch screen outside fields)"),
         text("Escape          Leave an input / close help"),
         text("Space           Play or stop"),
@@ -3319,8 +3322,19 @@ void run_tui(track_database& database,
       return true;
     }
     if (event == Event::F2) {
-      if (edited_track) leave_track_for(page_index(Page::Track));
-      else notification = "Open a library track first";
+      if (current_page == page_index(Page::Library)) {
+        if (library_paths.empty()) {
+          notification = "No library track selected";
+        } else {
+          open_track(library_paths[selected_library_track]);
+        }
+      } else if (current_page == page_index(Page::Mix)) {
+        if (mix_tracks.empty()) {
+          notification = "No mix track selected";
+        } else {
+          open_track(mix_tracks[selected_mix_track]);
+        }
+      }
       return true;
     }
     if (event == Event::F3) {
