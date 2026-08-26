@@ -3363,8 +3363,12 @@ void run_tui(track_database& database,
       if (event == Event::r) { random_input->TakeFocus(); return true; }
       if (event == Event::a && !library_paths.empty()) {
         const path selected = library_paths[selected_library_track];
-        if (!ranges::contains(mix_tracks, selected)) mix_tracks.push_back(selected);
-        rebuild_mix();
+        if (!ranges::contains(mix_tracks, selected)) {
+          mix_tracks.push_back(selected);
+          notification = std::format("Added to mix ({} tracks)", mix_tracks.size());
+        } else {
+          notification = "Track is already in the mix";
+        }
         return true;
       }
       if (event == Event::Return && library_menu->Focused() && !library_paths.empty()) {
