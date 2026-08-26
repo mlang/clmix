@@ -2479,6 +2479,47 @@ void seek_to_mix_bar(int bar1,
   return first < last ? string(first, last) : string{};
 }
 
+ftxui::ElementDecorator cursor_at(int x, int y)
+{
+  class CursorAt : public ftxui::Node {
+  public:
+    CursorAt(ftxui::Element child, int x, int y)
+      : Node({std::move(child)}), x_(x), y_(y)
+    {}
+
+    void ComputeRequirement() override
+    {
+      Node::ComputeRequirement();
+      requirement_ = children_[0]->requirement();
+      requirement_.focused.enabled = true;
+      requirement_.focused.node = this;
+      requirement_.focused.cursor_shape = ftxui::Screen::Cursor::Block;
+      requirement_.focused.box = {x_, x_, y_, y_};
+    }
+
+    void SetBox(ftxui::Box box) override
+    {
+      children_[0]->SetBox(box);
+      const int cursor_x = clamp(box.x_min + x_, box.x_min, box.x_max);
+      const int cursor_y = clamp(box.y_min + y_, box.y_min, box.y_max);
+      box_ = {cursor_x, cursor_x, cursor_y, cursor_y};
+    }
+
+    void Render(ftxui::Screen& screen) override
+    {
+      children_[0]->Render(screen);
+    }
+
+  private:
+    int x_;
+    int y_;
+  };
+
+  return [=](ftxui::Element child) {
+    return std::make_shared<CursorAt>(std::move(child), x, y);
+  };
+}
+
 void run_tui(track_database& database,
              const path& trackdb_path,
              vector<path>& mix_tracks,
@@ -2974,11 +3015,11 @@ void run_tui(track_database& database,
   grid_method_options.content = &track_grid_method;
   grid_method_options.multiline = false;
   auto track_grid_method_input = Input(grid_method_options);
-  auto track_save_button = Button("Save", save_track);
-  auto track_grid_button = Button("Autogrid", run_autogrid);
+  auto track_save_button = Button("Save", save_track) | cursor_at(1, 1);
+  auto track_grid_button = Button("Autogrid", run_autogrid) | cursor_at(1, 1);
   auto track_play_button = Button("Play / stop", [&] {
     if (edited_audio) g_player.playing.store(!g_player.playing.load());
-  });
+  }) | cursor_at(1, 1);
   auto track_buttons = Container::Horizontal({
     track_save_button, track_grid_button, track_play_button,
   });
