@@ -761,6 +761,17 @@
     },
     {
       "beats_per_bar": 4,
+      "bpm": 176.0,
+      "cue_bars": [],
+      "filename": "DnB/Bay B Kane/Various - Bay B Kane - Gangstress [Mighty Dreadnaut VIP] [1441671606].mp3",
+      "tags": [
+        "jungle"
+      ],
+      "time_offset": 0.06,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
       "bpm": 160.0,
       "cue_bars": [
         33,
@@ -871,7 +882,7 @@
         81,
         289
       ],
-      "filename": "DnB/Commercial Suicide Records/Klute - Saviour [3278305208].mp3",
+      "filename": "DnB/Commercial Suicide Records/Klute - No One's Listening Anymore LP/Klute - Saviour [3278305208].mp3",
       "tags": [
         "dnb",
         "vocal"
@@ -886,7 +897,7 @@
         33,
         257
       ],
-      "filename": "DnB/Commercial Suicide Records/Method One - Sightlines [4078115191].mp3",
+      "filename": "DnB/Commercial Suicide Records/Method One - Stomping Grounds EP (Suicide099)/Method One - Sightlines [4078115191].mp3",
       "tags": [
         "dnb"
       ],
@@ -900,7 +911,7 @@
         33,
         257
       ],
-      "filename": "DnB/Commercial Suicide Records/Seba & Method One - Dawn Patrol [1762843561].mp3",
+      "filename": "DnB/Commercial Suicide Records/Seba & Method One - \"Dawn Patrol\" (Suicide088)/01 - Dawn Patrol.flac",
       "tags": [
         "dnb"
       ],
@@ -1035,6 +1046,21 @@
         "jungle"
       ],
       "time_offset": 0.1,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 175.00174599492814,
+      "cue_bars": [
+        17,
+        193
+      ],
+      "filename": "DnB/Deep In The Jungle Records/DEEPIN083-P1 - Deep In The Jungle Anthems 7 - Part 1/26 - ScattyOne - Run Tingz.flac",
+      "tags": [
+        "jungle",
+        "vocals"
+      ],
+      "time_offset": 0.12049187347087909,
       "upbeat_beats": 0.0
     },
     {
@@ -1208,7 +1234,7 @@
         45,
         225
       ],
-      "filename": "DnB/Function Records/Function Records Uk - Spirits - DJ Trace [1388688957].mp3",
+      "filename": "DnB/Function Records/Shadows Compilation LP/Function Records Uk - Spirits - DJ Trace [1388688957].mp3",
       "tags": [
         "jungle"
       ],
@@ -1523,7 +1549,7 @@
         65,
         257
       ],
-      "filename": "DnB/Samurai Music/Eastcolors - Eastcolors - Acidized [2144629994].mp3",
+      "filename": "DnB/Samurai Music/Eastcolors ⧸ Foreign Concept & DBR UK - Acidized ⧸ Radiation (Foreign Exchange 2011 Part 2)/Eastcolors - Eastcolors - Acidized [2144629994].mp3",
       "tags": [
         "acid",
         "dnb"
@@ -1580,7 +1606,7 @@
         33,
         241
       ],
-      "filename": "DnB/Soul Trader Records/Silence Groove - Care More [1031375785].mp3",
+      "filename": "DnB/Soul Trader Records/Silence Groove - Cheeky Growler EP/Silence Groove - Care More [1031375785].mp3",
       "tags": [
         "dnb",
         "voice"
@@ -2093,6 +2119,51 @@
       "tags": [
         "Polymorph",
         "dnb"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 127.0,
+      "cue_bars": [
+        1,
+        289
+      ],
+      "filename": "Psytech/Ibogatech/Eegor & DM-Theory & Zark (IbogaTech) - Shifted Clarity/Eegor & Zark - Eegor & Zark - Shifted Clarity [3895636292].mp3",
+      "tags": [
+        "psy",
+        "tech"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 130.0,
+      "cue_bars": [
+        33,
+        245
+      ],
+      "filename": "Psytech/Zenon Records/Elberg - Play (24 bit)/Elberg - Glances [811483117].mp3",
+      "tags": [
+        "psy",
+        "tech"
+      ],
+      "time_offset": 0.0,
+      "upbeat_beats": 0.0
+    },
+    {
+      "beats_per_bar": 4,
+      "bpm": 137.0,
+      "cue_bars": [
+        25,
+        237
+      ],
+      "filename": "Psytech/Zenon Records/Kliment - Coexistence/Kliment - Sigma [4260473028].mp3",
+      "tags": [
+        "psy",
+        "tech"
       ],
       "time_offset": 0.0,
       "upbeat_beats": 0.0
